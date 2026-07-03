@@ -311,6 +311,54 @@ header h1 {
     border: 1px solid #EF4444;
 }
 
+.trade-history-container {
+    margin-top: 2rem;
+    border-top: 1px solid var(--glass-border);
+    padding-top: 1.5rem;
+}
+
+.trade-history-container h4 {
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+}
+
+.trade-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.trade-history-table th, .trade-history-table td {
+    padding: 0.75rem 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trade-history-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.status-won {
+    color: var(--accent-emerald);
+    font-weight: bold;
+}
+
+.status-lost {
+    color: #6B7280; /* Slate Gray */
+    font-weight: bold;
+}
+
+.status-pending {
+    color: #D97706; /* Bronze/Gold */
+    font-weight: bold;
+}
+
+.status-void {
+    color: #9CA3AF;
+    font-weight: bold;
+}
+
 .hidden {
     display: none !important;
 }

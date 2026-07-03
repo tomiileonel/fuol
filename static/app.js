@@ -94,6 +94,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await response.json();
                 document.getElementById("bankrollValue").textContent = `$${data.current_bankroll.toFixed(2)}`;
                 document.getElementById("roiValue").textContent = `${data.roi_percent.toFixed(2)}%`;
+                
+                // Render Trade History
+                const tbody = document.getElementById("tradeHistoryBody");
+                tbody.innerHTML = "";
+                data.history.forEach(trade => {
+                    const tr = document.createElement("tr");
+                    
+                    let statusClass = "status-pending";
+                    if (trade.status === "WON") statusClass = "status-won";
+                    if (trade.status === "LOST") statusClass = "status-lost";
+                    if (trade.status === "VOID") statusClass = "status-void";
+                    
+                    tr.innerHTML = `
+                        <td class="mono">${trade.match_id}</td>
+                        <td>${trade.selection}</td>
+                        <td class="mono">$${trade.stake.toFixed(2)}</td>
+                        <td class="${statusClass}">${trade.status}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
             }
         } catch (error) {
             console.error("Error fetching portfolio:", error);
