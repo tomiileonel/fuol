@@ -144,27 +144,36 @@ class EloRating:
 
 class TimeWeighter:
     """
-    Decaimiento exponencial con half_life optimizado por LOO-CV.
+    Decaimiento exponencial con half_life optimizado por LOO-CV y
+    soporte para quiebres estructurales dinámicos.
     """
     
-    def __init__(self, half_life: float = 365.0):
+    def __init__(self, half_life: float = 365.0, structural_break_date: Optional[str] = None):
         """
-        half_life: en días. Valor por defecto 365 = partidos del año pasado
-                   valen 0.5x respecto a los de hoy.
+        half_life: en días. Valor por defecto 365.
+        structural_break_date: Fecha de un evento disruptivo (ej. cambio de DT).
+                               Partidos previos a esta fecha decaerán más rápido.
         """
         self.half_life = half_life
+        self.structural_break_date = structural_break_date
     
     def compute_weights(self, matches: list[dict],
                         reference_date: Optional[str] = None) -> np.ndarray:
         """
         Retorna array de pesos normalizados [0,1] preservando índice original.
-        El array puede pasarse directamente a np.average() como weights.
         """
         import datetime
         if reference_date is None:
             today = datetime.date.today()
         else:
             today = datetime.date.fromisoformat(reference_date)
+            
+        break_date = None
+        if self.structural_break_date:
+            try:
+                break_date = datetime.date.fromisoformat(self.structural_break_date)
+            except ValueError:
+                pass
         
         weights = np.ones(len(matches))
         for i, m in enumerate(matches):
@@ -172,10 +181,18 @@ class TimeWeighter:
             if date_str:
                 try:
                     match_date = datetime.date.fromisoformat(date_str[:10])
-                    days_ago = (today - match_date).days
-                    weights[i] = 2.0 ** (-days_ago / self.half_life)
+                    days_ago = max(0, (today - match_date).days)
+                    
+                    # Dynamic Decay: Si el partido ocurrió antes del quiebre estructural
+                    current_hl = self.half_life
+                    if break_date and match_date < break_date:
+                        current_hl = self.half_life / 4.0  # Decaimiento agresivo (4x más rápido)
+                        
+                    weights[i] = 2.0 ** (-days_ago / current_hl)
                 except (ValueError, TypeError):
-                    weights[i] = 0.5  # sin fecha: peso moderado, no 1.0
+                    weights[i] = 0.5  # sin fecha: peso moderado
+            else:
+                weights[i] = 0.5
         
         total = weights.sum()
         return weights / total if total > 0 else np.ones(len(matches)) / len(matches)

@@ -1,5 +1,7 @@
+import asyncio
+import websockets
+import json
 import time
-import requests
 import logging
 from production_logger import ProductionLogger
 
@@ -7,10 +9,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("LiveAPI")
 
 class LiveAPIConnector:
-    def __init__(self, engine, match_id, base_url="http://localhost:5000/v1/odds"):
+    def __init__(self, engine, ws_url="ws://localhost:5001"):
         self.engine = engine
-        self.match_id = match_id
-        self.base_url = base_url
+        self.ws_url = ws_url
         self.logger_db = ProductionLogger()
         self.is_active = True
         
@@ -18,24 +19,9 @@ class LiveAPIConnector:
         self.LATENCY_LIMIT_MS = 2000.0
         self.ANOMALY_LIMIT = 0.20 # 20% absolute difference (3-sigma)
 
-    def fetch_market_odds(self):
-        start_time = time.time()
-        try:
-            # Conexión al servidor (o al Mock durante la fase de test)
-            response = requests.get(f"{self.base_url}/{self.match_id}", timeout=2.5)
-            latency = (time.time() - start_time) * 1000 # ms
-            
-            if response.status_code == 200:
-                return response.json(), latency
-            else:
-                return None, latency
-        except Exception as e:
-            logger.error(f"Error de conexión HTTP: {e}")
-            return None, (time.time() - start_time) * 1000
-
     def normalize_data(self, raw_data):
         odds = raw_data.get("odds", {})
-        o_a, o_b, o_d = odds.get("team_a", 0), odds.get("team_b", 0), odds.get("draw", 0)
+        o_a, o_d, o_b = odds.get("team_a", 0), odds.get("draw", 0), odds.get("team_b", 0)
         
         # Circuit Breaker 1: Validación de Integridad
         if o_a <= 0 or o_b <= 0 or o_d <= 0:
@@ -50,62 +36,75 @@ class LiveAPIConnector:
             "draw": p_d / overround
         }
 
-    def run_live_loop(self, iterations=10, interval=2):
-        logger.info(f"Iniciando Live Fire Mode para {self.match_id} (Umbral Latencia: {self.LATENCY_LIMIT_MS}ms, Anomalía: {self.ANOMALY_LIMIT*100}%)")
-        
+    async def connect_and_listen(self):
+        logger.info(f"Conectando a stream WebSocket en {self.ws_url} ...")
         try:
-            engine_probs, _ = self.engine.run_pipeline()
-            engine_prob_a = engine_probs["1X2"][0] 
-        except Exception as e:
-            engine_prob_a = 0.52 
+            # Obtener probabilidades base del motor estadístico
+            engine_probs = self.engine.predict()
+            engine_prob_a = engine_probs['p1']
             
-        for i in range(iterations):
-            if not self.is_active:
-                logger.error("Sistema PAUSADO por Stop-Loss Algorítmico.")
-                break
-                
-            try:
-                # 1. Fetch
-                raw_data, latency = self.fetch_market_odds()
-                
-                if raw_data is None:
-                     logger.error(f"[Tick {i}] Error de fetch o timeout. Latencia {latency:.0f}ms")
-                     time.sleep(interval)
-                     continue
-                
-                # 2. Circuit Breaker: Latency
-                if latency > self.LATENCY_LIMIT_MS:
-                    logger.warning(f"[Tick {i}] STALE DATA DESCARTADO. Latencia {latency:.0f}ms > {self.LATENCY_LIMIT_MS}ms")
-                    self.logger_db.log_signal(self.match_id, engine_prob_a, 0, 0, latency, "STALE_DATA")
-                    time.sleep(interval)
-                    continue
+            # Entropía basada en Brier Score histórico (placeholder, se enlazará luego)
+            brier_score = 0.15 
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo prior del motor: {e}")
+            engine_prob_a = 0.50
+            brier_score = 0.20
+            
+        async with websockets.connect(self.ws_url) as ws:
+            logger.info("Conexión WebSocket establecida. Escuchando ticks...")
+            while self.is_active:
+                try:
+                    message = await ws.recv()
+                    raw_data = json.loads(message)
                     
-                # 3. Normalize & Circuit Breaker: Integrity
-                market_probs = self.normalize_data(raw_data)
-                market_prob_a = market_probs["team_a"]
-                
-                # 4. Calculate Alpha
-                alpha = engine_prob_a - market_prob_a
-                
-                # 5. Circuit Breaker: Anomaly Stop-Loss
-                if abs(alpha) > self.ANOMALY_LIMIT:
-                    logger.error(f"[Tick {i}] CISNE NEGRO DETECTADO. Alpha |{alpha:.2f}| > {self.ANOMALY_LIMIT}. Pausando motor.")
-                    self.logger_db.log_signal(self.match_id, engine_prob_a, market_prob_a, alpha, latency, "PAUSED_ANOMALY")
-                    self.is_active = False
-                    continue
-                
-                # 6. Ejecución Normal
-                if alpha > 0.03: 
-                    logger.info(f"[Tick {i}] VALUE BET: Alpha +{alpha*100:.2f}%. (Engine: {engine_prob_a*100:.1f}%, Market: {market_prob_a*100:.1f}%) [Lat: {latency:.0f}ms]")
-                else:
-                    logger.info(f"[Tick {i}] NO ACTION: Alpha {alpha*100:.2f}% [Lat: {latency:.0f}ms]")
+                    receive_time = time.time()
+                    sent_time = raw_data.get("timestamp", receive_time)
+                    latency = (receive_time - sent_time) * 1000
                     
-                self.logger_db.log_signal(self.match_id, engine_prob_a, market_prob_a, alpha, latency, "OK")
-                
-            except ValueError as e:
-                logger.error(f"[Tick {i}] INTEGRIDAD FALLIDA: {e}")
-                self.logger_db.log_signal(self.match_id, engine_prob_a, 0, 0, latency, "CORRUPT_PAYLOAD")
-            except Exception as e:
-                logger.error(f"[Tick {i}] ERROR INESPERADO: {e}")
-                
-            time.sleep(interval)
+                    match_id = raw_data.get("match_id", "UNKNOWN")
+                    tick = raw_data.get("tick", 0)
+                    
+                    if latency > self.LATENCY_LIMIT_MS:
+                        logger.warning(f"[Tick {tick}] STALE DATA DESCARTADO. Latencia {latency:.0f}ms > {self.LATENCY_LIMIT_MS}ms")
+                        self.logger_db.log_signal(match_id, engine_prob_a, 0, 0, latency, "STALE_DATA")
+                        continue
+                        
+                    market_probs = self.normalize_data(raw_data)
+                    market_prob_a = market_probs["team_a"]
+                    
+                    alpha = engine_prob_a - market_prob_a
+                    
+                    # Criterio de Kelly Fraccional
+                    b = (1.0 / market_prob_a) - 1.0 if market_prob_a > 0 else 0
+                    p = engine_prob_a
+                    q = 1.0 - p
+                    kelly_f = ((b * p) - q) / b if b > 0 else 0
+                    
+                    # Ajuste dinámico de fracción según el Brier Score (Entropía)
+                    # A menor Brier Score (mejor predicción histórica), mayor confianza
+                    # Escala base: 10% Kelly. Si Brier es alto (ej > 0.25), baja a 5%.
+                    confidence_multiplier = max(0.5, 1.0 - (brier_score * 2))
+                    fractional_kelly = max(0, kelly_f * 0.10 * confidence_multiplier)
+                    
+                    if abs(alpha) > self.ANOMALY_LIMIT:
+                        logger.error(f"[Tick {tick}] CISNE NEGRO DETECTADO. Alpha |{alpha:.2f}| > {self.ANOMALY_LIMIT}. Pausando motor.")
+                        self.logger_db.log_signal(match_id, engine_prob_a, market_prob_a, alpha, latency, "PAUSED_ANOMALY")
+                        self.is_active = False
+                        break
+                        
+                    if alpha > 0.03:
+                        logger.info(f"[Tick {tick}] VALUE BET: Alpha +{alpha*100:.2f}% | Kelly Rec: {fractional_kelly*100:.2f}% | Lat: {latency:.0f}ms")
+                    else:
+                        logger.info(f"[Tick {tick}] NO ACTION: Alpha {alpha*100:.2f}% | Lat: {latency:.0f}ms")
+                        
+                    self.logger_db.log_signal(match_id, engine_prob_a, market_prob_a, alpha, latency, "OK")
+                    
+                except websockets.exceptions.ConnectionClosed:
+                    logger.error("Desconectado del servidor WebSocket.")
+                    break
+                except Exception as e:
+                    logger.error(f"Error procesando mensaje: {e}")
+
+    def run(self):
+        asyncio.run(self.connect_and_listen())

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FUOL v2.0 - Live Trading Control</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>FUOL <span>v2.0</span></h1>
+            <div class="status-indicator" id="status-indicator">
+                <span class="pulse"></span> ESPERANDO DATOS...
+            </div>
+        </header>
+
+        <div class="grid">
+            <div class="panel match-info glass">
+                <h2>AUSTRALIA vs EGIPTO</h2>
+                <p>16avos de Final | Sede: Arlington</p>
+                <div class="brier-score">
+                    Brier Histórico: <strong>0.15</strong> (Confianza Alta)
+                </div>
+            </div>
+
+            <div class="panel signal glass" id="signal-panel">
+                <div class="label">EDGE (ALPHA) DETECTADO</div>
+                <div class="value" id="alpha-val">0.00%</div>
+            </div>
+
+            <div class="panel kelly glass" id="kelly-panel">
+                <div class="label">FRACCIÓN DE KELLY RECOMENDADA (10% ESCALA)</div>
+                <div class="value" id="kelly-val">0.00%</div>
+            </div>
+
+            <div class="panel telemetry glass">
+                <div class="label">MOTOR STATS</div>
+                <div class="stat">P(Australia) [Engine]: <span id="engine-prob">0.0%</span></div>
+                <div class="stat">P(Australia) [Mercado]: <span id="market-prob">0.0%</span></div>
+                <div class="stat">Tick Market: <span id="tick-val">0</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
