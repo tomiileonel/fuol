@@ -379,10 +379,11 @@ class DixonColes:
                 lam_hat: float, mu_hat: float,
                 bounds: tuple[float, float] = (-0.5, 0.2)) -> float:
         """
-        MLE de ρ dado λ̂ y μ̂.
+        MLE de ρ dado λ̂ y μ̂ con prior informado.
+        Prior: ρ ~ N(-0.13, 0.08) basado en literatura Dixon-Coles.
         """
         if len(all_matches) < 15:
-            return -0.04  # sin datos suficientes, fallback informado
+            return -0.13  # sin datos suficientes, usar media del prior
         
         def neg_profile_ll(rho: float) -> float:
             ll = 0.0
@@ -401,7 +402,10 @@ class DixonColes:
                      stats.poisson.pmf(i, max(lam_hat, 0.01)) *
                      stats.poisson.pmf(j, max(mu_hat, 0.01)))
                 ll += np.log(max(float(p), 1e-15))
-            return -ll
+            
+            # Regularizador Bayesiano: log_prior(rho)
+            log_prior = stats.norm.logpdf(rho, loc=-0.13, scale=0.08)
+            return -(ll + log_prior)
         
         result = optimize.minimize_scalar(
             neg_profile_ll, bounds=bounds, method='bounded',
