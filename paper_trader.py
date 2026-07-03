@@ -1,6 +1,7 @@
 import os
 import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 
 class PaperTrader:
     def __init__(self, db_uri="mongodb://localhost:27017", initial_bankroll=10000.0):
@@ -32,19 +33,11 @@ class PaperTrader:
         return fractional_kelly
 
     async def get_current_bankroll(self):
-        """Calcula el bankroll disponible restando el PnL y stakes pendientes."""
-        cursor = self.ledger.find({})
-        current = self.initial_bankroll
-        async for trade in cursor:
-            if trade.get("status") == "PENDING":
-                current -= trade.get("stake", 0)
-            elif trade.get("status") == "WON":
-                # Recuperas el stake + ganancia neta
-                profit = trade.get("stake", 0) * (trade.get("market_odds", 1.0) - 1.0)
-                current += profit
-            elif trade.get("status") == "LOST":
-                current -= trade.get("stake", 0)
-        return current
+        """Calcula el bankroll disponible en O(1) desde el estado global."""
+        wallet = await self.db.wallet_state.find_one({"_id": "main_wallet"})
+        if not wallet:
+            return self.initial_bankroll
+        return wallet.get("balance", self.initial_bankroll)
 
     async def place_bet(self, match_id: str, selection: str, engine_prob: float, market_odds: float, brier_score: float = 0.15):
         """
@@ -65,6 +58,23 @@ class PaperTrader:
         
         # Guardrail: No apostar menos de $1 ni más de $1000 en un solo trade
         stake = max(1.0, min(1000.0, stake))
+        
+        # 1. Asegurar que la billetera exista
+        await self.db.wallet_state.update_one(
+            {"_id": "main_wallet"},
+            {"$setOnInsert": {"balance": self.initial_bankroll}},
+            upsert=True
+        )
+        
+        # 2. Descontar atómicamente si hay fondos (Evita Race Condition)
+        updated_wallet = await self.db.wallet_state.find_one_and_update(
+            {"_id": "main_wallet", "balance": {"$gte": stake}},
+            {"$inc": {"balance": -stake}},
+            return_document=ReturnDocument.AFTER
+        )
+        
+        if not updated_wallet:
+            return {"success": False, "reason": "Fondos insuficientes o Race Condition bloqueada", "alpha": alpha}
         
         trade_doc = {
             "timestamp": datetime.datetime.now().isoformat(),

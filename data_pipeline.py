@@ -62,6 +62,8 @@ class AdvancedDataPipeline:
                 "formation_str": formation_str,
                 "xg_for": get_stat(team_stats, "expected_goals", 1.0),
                 "xg_against": get_stat(opp_stats, "expected_goals", 1.0),
+                "gf": get_stat(team_stats, "expected_goals", 1.0),  # Inyección directa de xG para el UnifiedEngine
+                "gc": get_stat(opp_stats, "expected_goals", 1.0),   # Inyección directa de xG para el UnifiedEngine
                 "possession_pct": get_stat(team_stats, "ball possession", 50.0),
                 "field_tilt": get_stat(team_stats, "ball possession", 50.0), # Fallback si no hay field tilt
                 "avg_positions": [], # Vacío provocará el fallback a FORMACIONES
@@ -131,16 +133,14 @@ class AdvancedDataPipeline:
     # ==============================================================================
     def build_engine_payload(self, team_history, current_match_telemetry):
         """
-        Orquesta la transformación final. Este diccionario es el input 
-        puro que consumirá la clase SupremePredictionEngine.
+        Orquesta la transformación final. Ahora devuelve las listas compatibles 
+        con el UnifiedEngine, exponiendo la telemetría enriquecida.
         """
-        lam_prior, mu_prior = self.transform_telemetry_to_prior(team_history)
         voronoi_tensor = self.transform_positions_to_voronoi_matrix(current_match_telemetry)
         field_tilt = current_match_telemetry.get("field_tilt", 50.0) / 100.0
         
         return {
-            "lambda_xg": lam_prior,
-            "mu_xga": mu_prior,
+            "enriched_matches": team_history,
             "voronoi_formation": voronoi_tensor,
             "momentum_modifier": field_tilt 
         }

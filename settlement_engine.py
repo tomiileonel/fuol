@@ -10,6 +10,7 @@ async def run_manual_settlement():
     client = AsyncIOMotorClient("mongodb://localhost:27017/")
     db = client["fuol_lake"]
     ledger = db["paper_trading_ledger"]
+    wallet_state = db["wallet_state"]
 
     # 1. Buscar todas las posiciones abiertas
     cursor = ledger.find({"status": "PENDING"})
@@ -43,6 +44,7 @@ async def run_manual_settlement():
             
             # Actualización atómica en MongoDB
             await ledger.update_one({"_id": trade["_id"]}, {"$set": {"status": "WON", "pnl_usd": net_profit}})
+            await wallet_state.update_one({"_id": "main_wallet"}, {"$inc": {"balance": gross_return}})
             print(f"    [+] LIQUIDADA (WON): +${net_profit:.2f} de ganancia neta. Retorno acreditado.\n")
 
         elif outcome == 'L':
@@ -53,6 +55,7 @@ async def run_manual_settlement():
         elif outcome == 'V':
             # Si se suspende el partido, se devuelve el dinero intacto.
             await ledger.update_one({"_id": trade["_id"]}, {"$set": {"status": "VOID", "pnl_usd": 0.0}})
+            await wallet_state.update_one({"_id": "main_wallet"}, {"$inc": {"balance": stake}})
             print(f"    [~] LIQUIDADA (VOID): Capital devuelto a la cuenta.\n")
             
         else:
