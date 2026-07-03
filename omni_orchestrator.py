@@ -110,7 +110,7 @@ class OmniContextOrchestrator:
 if __name__ == "__main__":
     async def run_demo():
         orchestrator = OmniContextOrchestrator()
-        result = await orchestrator.gather_360_context("Argentina", "France")
+        result = await orchestrator.gather_360_context("Australia", "Egypt")
         # Mostrar resumen
         print("\n--- RESUMEN DEL MASTER DOCUMENT ---")
         print(f"Match ID: {result['match_id']}")
