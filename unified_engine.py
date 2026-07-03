@@ -23,43 +23,6 @@ warnings.filterwarnings('ignore')
 # ---------------------------------------------------------------------------
 # CONSTANTE GLOBAL — centralizada, no duplicada
 # ---------------------------------------------------------------------------
-FORMACIONES: dict[str, np.ndarray] = {
-    # Formato: array (11, 2) con coordenadas [x, y] en campo 105x68
-    # x: 0 (línea de defensa propia) → 52.5 (centro) → 105 (portería rival)
-    # y: 0 → 68
-    '4-3-3': np.array([
-        [5.0, 34.0],   # portero
-        [18.0, 15.0], [18.0, 30.0], [18.0, 50.0], [18.0, 65.0],  # defensa
-        [40.0, 20.0], [40.0, 34.0], [40.0, 48.0],                 # medio
-        [70.0, 15.0], [75.0, 34.0], [70.0, 55.0]                  # ataque
-    ], dtype=float),
-    '4-2-3-1': np.array([
-        [5.0, 34.0],
-        [18.0, 12.0], [18.0, 28.0], [18.0, 46.0], [18.0, 62.0],
-        [33.0, 24.0], [33.0, 44.0],
-        [52.0, 15.0], [52.0, 34.0], [52.0, 53.0],
-        [75.0, 34.0]
-    ], dtype=float),
-    '3-4-2-1': np.array([
-        [5.0, 34.0],
-        [18.0, 17.0], [18.0, 34.0], [18.0, 51.0],
-        [36.0, 10.0], [36.0, 28.0], [36.0, 46.0], [36.0, 62.0],
-        [58.0, 22.0], [58.0, 46.0],
-        [76.0, 34.0]
-    ], dtype=float),
-    '4-4-2': np.array([
-        [5.0, 34.0],
-        [18.0, 12.0], [18.0, 28.0], [18.0, 46.0], [18.0, 62.0],
-        [40.0, 12.0], [40.0, 28.0], [40.0, 46.0], [40.0, 62.0],
-        [70.0, 24.0], [70.0, 44.0]
-    ], dtype=float),
-    '5-3-2': np.array([
-        [5.0, 34.0],
-        [15.0, 8.0], [18.0, 22.0], [18.0, 34.0], [18.0, 46.0], [15.0, 60.0],
-        [38.0, 20.0], [38.0, 34.0], [38.0, 48.0],
-        [68.0, 24.0], [68.0, 44.0]
-    ], dtype=float),
-}
 
 # Formación por defecto para selecciones no especificadas
 TEAM_FORMATIONS: dict[str, str] = {
@@ -108,7 +71,7 @@ class EloRating:
     # Multiplicador de conversión Elo → λ/μ
     # A_ELO_LAMBDA: factor escala para convertir ventaja Elo en ratio de goles
     ELO_SCALE = 400.0
-    LAMBDA_SCALE = 0.23   # FIX #1
+    LAMBDA_SCALE = 0.23   # NOTA: Este factor empírico idealmente debe ajustarse por regresión
     
     COMP_K = {
         'WC 2026 Telemetry': K_WC,
@@ -285,9 +248,8 @@ class BayesianGoalRates:
         matches: list[dict],
         elo_ratio: float,
         weighter: TimeWeighter,
-        venue_modifier: float = 1.0,
         modifiers: dict = None,
-    ) -> tuple[float, float, float, float, float, float]: # FIX #2: added floats for alpha/beta post
+    ) -> tuple[float, float, float, float, float, float]:
         """
         Retorna (lam_post, mu_post, lam_std, mu_std, alpha_att_post, beta_att_post).
         """
@@ -307,9 +269,9 @@ class BayesianGoalRates:
         n = len(sorted_matches)
         n_eff = max(1.0, np.sum(w) / np.max(w) if np.max(w) > 0 else n)
         
-        # Prior basado en Elo:
-        prior_lam = AVG_GOALS_WC_HISTORICAL * elo_ratio * venue_modifier
-        prior_mu  = AVG_GOALS_WC_HISTORICAL / elo_ratio / venue_modifier
+        # Prior basado en Elo (venue_modifier ya está integrado dentro de elo_ratio):
+        prior_lam = AVG_GOALS_WC_HISTORICAL * elo_ratio
+        prior_mu  = AVG_GOALS_WC_HISTORICAL / elo_ratio
         
         # Parámetros Gamma prior
         alpha_0_att = prior_lam * self.prior_strength
@@ -487,6 +449,8 @@ class UnifiedEngine:
         half_life: Optional[float] = None,  # None → se optimiza por LOO-CV
         optimize_rho: bool = True,
         precomputed_rho: Optional[float] = None,
+        base_elo_a: Optional[float] = None,
+        base_elo_b: Optional[float] = None,
     ):
         self.team_a = team_a
         self.team_b = team_b
@@ -502,12 +466,14 @@ class UnifiedEngine:
         # Inicializar subcomponentes
         all_matches = self.matches_a + self.matches_b
         
-        # Elo: reconstruir ratings desde historial
-        self.elo_a = EloRating(team_a)
-        self.elo_a.elo_from_matches(self.matches_a)
-        
-        self.elo_b = EloRating(team_b)
-        self.elo_b.elo_from_matches(self.matches_b)
+        # Elo: reconstruir ratings desde historial o usar base precomputada
+        self.elo_a = EloRating(team_a, initial_elo=base_elo_a)
+        if base_elo_a is None:
+            self.elo_a.elo_from_matches(self.matches_a)
+            
+        self.elo_b = EloRating(team_b, initial_elo=base_elo_b)
+        if base_elo_b is None:
+            self.elo_b.elo_from_matches(self.matches_b)
         
         # Optimizar half_life por LOO-CV si no se especifica
         if half_life is None and len(all_matches) >= 8:
@@ -541,15 +507,12 @@ class UnifiedEngine:
         elo_ratio_a = self.elo_a.expected_goal_ratio(self.elo_b.rating, self.venue)
         elo_ratio_b = 1.0 / elo_ratio_a
         
-        venue_mod_a = 1.10 if self.venue == 'H' else (0.91 if self.venue == 'A' else 1.0)
-        venue_mod_b = 0.91 if self.venue == 'H' else (1.10 if self.venue == 'A' else 1.0)
-        
-        # 2. Tasas Bayesianas con prior Elo - FIX #2
+        # 2. Tasas Bayesianas con prior Elo (Home advantage ya incluido en elo_ratio)
         lam, lam_def, lam_std, _, alpha_lam, beta_lam = self.bayes.compute_rates(
-            self.matches_a, elo_ratio_a, self.weighter, venue_mod_a, self.modifiers_a
+            self.matches_a, elo_ratio_a, self.weighter, self.modifiers_a
         )
         mu, mu_def, mu_std, _, alpha_mu, beta_mu = self.bayes.compute_rates(
-            self.matches_b, elo_ratio_b, self.weighter, venue_mod_b, self.modifiers_b
+            self.matches_b, elo_ratio_b, self.weighter, self.modifiers_b
         )
         
         # Ajuste cruzado defensa: λ_final = √(λ_ataque_A × λ_concedido_B)
@@ -751,6 +714,7 @@ def run_prediction(
     verbose: bool = True,
     half_life: Optional[float] = None,
     precomputed_rho: Optional[float] = None,
+    run_backtest: bool = True,
 ) -> dict:
     """
     Wrapper de alto nivel, compatible con el flujo existente.
@@ -766,16 +730,34 @@ def run_prediction(
     )
     result = engine.predict()
     
+    # Conectamos WalkForwardBacktester al flujo principal
+    backtest_metrics = {}
+    if run_backtest and len(matches_a) >= 8 and len(matches_b) >= 8:
+        bt = WalkForwardBacktester(min_train_size=5)
+        backtest_metrics = bt.run_walkforward(
+            team_a, team_b, matches_a, matches_b, venue=venue
+        )
+        result['backtest_metrics'] = backtest_metrics
+    
     if verbose:
         print(f"\n{'='*55}")
         print(f"  {team_a} vs {team_b} (Venue: {venue})")
         print(f"{'='*55}")
         print(f"  Elo: {result['elo_a']} vs {result['elo_b']}")
-        print(f"  ρ (Dixon-Coles MLE): {result['rho']}")
+        print(f"  rho (Dixon-Coles MLE): {result['rho']}")
         print(f"  half_life (LOO-CV):  {result['half_life_days']} días")
-        print(f"  λ = {result['lam']} ± {result['lam_std']}  (CI90: {result['ci_lam_90']})")
-        print(f"  μ = {result['mu']} ± {result['mu_std']}  (CI90: {result['ci_mu_90']})")
+        print(f"  lam = {result['lam']} ± {result['lam_std']}  (CI90: {result['ci_lam_90']})")
+        print(f"  mu = {result['mu']} ± {result['mu_std']}  (CI90: {result['ci_mu_90']})")
         print(f"\n  P(1)={result['p1']:.1%}  P(X)={result['px']:.1%}  P(2)={result['p2']:.1%}")
+        
+        if backtest_metrics:
+            print(f"\n  [Walk-Forward Validation]")
+            print(f"  Matches Eval: {backtest_metrics.get('n_matches', 0)}")
+            print(f"  Brier Score:  {backtest_metrics.get('brier_score', 'N/A')}")
+            print(f"  Log-Loss:     {backtest_metrics.get('log_loss', 'N/A')}")
+            print(f"  RPS:          {backtest_metrics.get('rps', 'N/A')}")
+            print(f"  Hit Rate:     {backtest_metrics.get('hit_rate_pct', 'N/A')}%")
+            
         print(f"\n  Top-5 marcadores exactos:")
         for s in result['top_5_scores']:
             print(f"    {s['score']}  →  {s['prob']:.2%}")

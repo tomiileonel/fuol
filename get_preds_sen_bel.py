@@ -1,10 +1,27 @@
 import json
 import numpy as np
+import datetime
 from unified_engine import run_prediction
 from performance_tracker import ModelTelemetry
 
-senegal = [{"gf":3,"gc":0}, {"gf":3,"gc":1}, {"gf":2,"gc":0}, {"gf":1,"gc":1}, {"gf":3,"gc":0}, {"gf":1,"gc":0}, {"gf":1,"gc":1}, {"gf":1,"gc":0}, {"gf":1,"gc":1}, {"gf":1,"gc":0}, {"gf":0,"gc":0}, {"gf":2,"gc":0}, {"gf":1,"gc":3}, {"gf":2,"gc":3}, {"gf":5,"gc":0}]
-belgium = [{"gf":0,"gc":0}, {"gf":2,"gc":2}, {"gf":2,"gc":0}, {"gf":3,"gc":0}, {"gf":0,"gc":1}, {"gf":2,"gc":0}, {"gf":0,"gc":0}, {"gf":0,"gc":1}, {"gf":3,"gc":1}, {"gf":0,"gc":2}, {"gf":2,"gc":2}, {"gf":1,"gc":2}, {"gf":0,"gc":1}, {"gf":0,"gc":1}, {"gf":1,"gc":1}, {"gf":4,"gc":3}, {"gf":1,"gc":1}, {"gf":0,"gc":0}, {"gf":5,"gc":1}]
+senegal_raw = [{"gf":3,"gc":0}, {"gf":3,"gc":1}, {"gf":2,"gc":0}, {"gf":1,"gc":1}, {"gf":3,"gc":0}, {"gf":1,"gc":0}, {"gf":1,"gc":1}, {"gf":1,"gc":0}, {"gf":1,"gc":1}, {"gf":1,"gc":0}, {"gf":0,"gc":0}, {"gf":2,"gc":0}, {"gf":1,"gc":3}, {"gf":2,"gc":3}, {"gf":5,"gc":0}]
+belgium_raw = [{"gf":0,"gc":0}, {"gf":2,"gc":2}, {"gf":2,"gc":0}, {"gf":3,"gc":0}, {"gf":0,"gc":1}, {"gf":2,"gc":0}, {"gf":0,"gc":0}, {"gf":0,"gc":1}, {"gf":3,"gc":1}, {"gf":0,"gc":2}, {"gf":2,"gc":2}, {"gf":1,"gc":2}, {"gf":0,"gc":1}, {"gf":0,"gc":1}, {"gf":1,"gc":1}, {"gf":4,"gc":3}, {"gf":1,"gc":1}, {"gf":0,"gc":0}, {"gf":5,"gc":1}]
+
+def hydratar_metadata(matches_raw, ref_date="2026-07-03", days_between=14):
+    """Inyecta 'date'/'opponent' sintéticos (ver get_preds.py para el detalle del porqué)."""
+    ref = datetime.date.fromisoformat(ref_date)
+    n = len(matches_raw)
+    out = []
+    for idx, m in enumerate(matches_raw):
+        d = ref - datetime.timedelta(days=days_between * (n - 1 - idx))
+        rec = dict(m)
+        rec["date"] = d.isoformat()
+        rec["opponent"] = f"Rival {idx + 1}"
+        out.append(rec)
+    return out
+
+senegal = hydratar_metadata(senegal_raw)
+belgium = hydratar_metadata(belgium_raw)
 
 telemetry = ModelTelemetry()
 senegal_dynamic = telemetry.synchronize_knowledge_base("SENEGAL", senegal)

@@ -1,5 +1,5 @@
 import numpy as np
-from supreme_engine import SupremePredictionEngine
+from unified_engine import UnifiedEngine, run_prediction
 from performance_tracker import ModelTelemetry
 
 espana = [{"gf": 2.1, "gc": 0.7, "res": "W"}, {"gf": 1.8, "gc": 0.6, "res": "W"}, {"gf": 2.0, "gc": 0.5, "res": "W"}, {"gf": 1.5, "gc": 1.0, "res": "D"}]

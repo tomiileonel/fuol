@@ -42,9 +42,18 @@ class ModelTelemetry:
             conn.commit()
 
     def log_prediction(self, team_a, team_b, engine_output):
-        """Registra la salida vectorial del SupremePredictionEngine."""
-        p1, px, p2 = engine_output["1X2"]
-        lam, mu = engine_output["Tasas Finales (Interferencia)"]
+        """
+        Registra la salida plana de UnifiedEngine.predict() / run_prediction().
+        Schema real: 'p1','px','p2','lam','mu', etc.
+        """
+        try:
+            p1, px, p2 = engine_output["p1"], engine_output["px"], engine_output["p2"]
+            lam, mu = engine_output["lam"], engine_output["mu"]
+        except KeyError as e:
+            raise KeyError(
+                f"[Telemetry] engine_output no tiene el schema plano esperado de UnifiedEngine "
+                f"(falta la clave {e})."
+            ) from e
         
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()

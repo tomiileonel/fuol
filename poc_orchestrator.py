@@ -3,14 +3,12 @@ import numpy as np
 from data_pipeline import AdvancedDataPipeline
 from performance_tracker import ModelTelemetry
 from api_client import APIFootballClient
-from supreme_engine import SupremePredictionEngine
+from unified_engine import UnifiedEngine, run_prediction
 
-FORMACIONES = {
-    "4-3-3": np.array([[5,34], [25,14], [20,28], [20,40], [25,54], [45,20], [40,34], [45,48], [75,14], [80,34], [75,54]]),
-    "4-2-3-1": np.array([[5,34], [25,14], [20,28], [20,40], [25,54], [40,25], [40,43], [60,14], [65,34], [60,54], [85,34]]),
-    "3-4-2-1": np.array([[5,34], [20,20], [15,34], [20,48], [45,10], [40,26], [40,42], [45,58], [65,24], [65,44], [80,34]]),
-    "4-4-2": np.array([[5,34], [25,14], [20,28], [20,40], [25,54], [45,14], [40,34], [40,48], [45,54], [75,25], [75,43]])
-}
+# NOTA: FORMACIONES (grillas de coordenadas x,y para renderizado táctico) se elimina
+# de este archivo. UnifiedEngine no acepta formaciones -- ese input pertenecía al
+# viejo SupremePredictionEngine (basado en Voronoi/geometría), que ya no existe.
+# Mantenerlo aquí era código muerto que nunca se pasaba a ningún lado.
 
 class ShadowModePoC:
     def __init__(self, api_key=None, use_mock=True):
@@ -37,21 +35,29 @@ class ShadowModePoC:
         
         print(f"[PoC] Procesando: {home_name} ({home_team['formation_str']}) vs {away_name} ({away_team['formation_str']})")
         
-        # Simulamos historial para calcular Priors (normalmente vendría de telemetría SQLite)
-        mock_history_home = [{"xg_for": 1.8, "xg_against": 0.5}]
-        mock_history_away = [{"xg_for": 1.2, "xg_against": 1.1}]
-        
-        engine = SupremePredictionEngine(
+        # Simulamos historial para calcular Priors (normalmente vendría de telemetría SQLite).
+        # Incluimos 'date' y 'opponent' explícitos: sin ellos, TimeWeighter y EloRating
+        # caen en sus fallbacks (peso plano, Elo 1600 por defecto) y el motor pierde
+        # toda la ventaja de la ponderación temporal y el prior histórico.
+        mock_history_home = [
+            {"date": "2026-06-05", "opponent": "Colombia", "gf": 2, "gc": 0, "res": "W"},
+            {"date": "2026-06-10", "opponent": "Uruguay",  "gf": 1, "gc": 1, "res": "D"},
+            {"date": "2026-06-18", "opponent": "Paraguay", "gf": 3, "gc": 1, "res": "W"},
+        ]
+        mock_history_away = [
+            {"date": "2026-06-04", "opponent": "Chile",    "gf": 1, "gc": 1, "res": "D"},
+            {"date": "2026-06-11", "opponent": "Peru",     "gf": 0, "gc": 2, "res": "L"},
+            {"date": "2026-06-19", "opponent": "Ecuador",  "gf": 2, "gc": 2, "res": "D"},
+        ]
+
+        # Corremos la predicción con el motor real (UnifiedEngine vía run_prediction)
+        res = run_prediction(
             home_name, away_name,
-            [{"gf": m["xg_for"], "gc": m["xg_against"]} for m in mock_history_home], 
-            [{"gf": m["xg_for"], "gc": m["xg_against"]} for m in mock_history_away],
-            FORMACIONES
+            mock_history_home, mock_history_away,
+            venue="H", verbose=False
         )
-        
-        # Corremos el pipeline predictivo
-        res, _ = engine.run_pipeline(form_str_a=home_team["formation_str"], form_str_b=away_team["formation_str"])
-        
-        # Guardamos en la base de datos
+
+        # Guardamos en la base de datos (schema plano: p1/px/p2/lam/mu)
         self.telemetry.log_prediction(home_name, away_name, res)
         print("[PoC] Prediccion guardada exitosamente en supreme_predictions.db")
         

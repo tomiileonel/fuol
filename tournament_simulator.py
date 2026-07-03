@@ -36,6 +36,15 @@ class MonteCarloTournament:
         else:
             self.precomputed_rho = -0.04
         print(f"Pre-computación lista. rho = {self.precomputed_rho:.4f}")
+        
+        # PRE-COMPUTE Elo Ratings (Fix for Performance)
+        print("Pre-computando Elo base de cada equipo...")
+        from unified_engine import EloRating
+        self.base_elos = {}
+        for team in self.teams:
+            elo = EloRating(team)
+            elo.elo_from_matches(self.base_histories.get(team, []))
+            self.base_elos[team] = elo.rating
 
     # ==============================================================================
     # 1. COLAPSO ESTOCÁSTICO DE LA MATRIZ
@@ -83,6 +92,9 @@ class MonteCarloTournament:
             for team in self.teams
         }
         
+        # Copia de los base Elos que irán evolucionando en la simulación
+        current_elos = self.base_elos.copy()
+        
         # Inyección de Cisne Negro Estocástico
         if self.black_swan_config:
             bs_team = self.black_swan_config.get("team")
@@ -110,7 +122,9 @@ class MonteCarloTournament:
                     modifiers_b=current_modifiers[t_b],
                     half_life=hl,
                     optimize_rho=False,
-                    precomputed_rho=self.precomputed_rho
+                    precomputed_rho=self.precomputed_rho,
+                    base_elo_a=current_elos[t_a],
+                    base_elo_b=current_elos[t_b]
                 )
                 
                 # Ejecutar cálculo
@@ -134,14 +148,22 @@ class MonteCarloTournament:
                     "gf": gf_b, "gc": gf_a, "res": res_b
                 })
                 
+                # Update Incremental Elo inside the universe
+                engine.elo_a.update(current_knowledge[t_a][-1], engine.elo_b.rating)
+                engine.elo_b.update(current_knowledge[t_b][-1], engine.elo_a.rating)
+                
+                # Store the updated Elos to be used as base in the next round
+                current_elos[t_a] = engine.elo_a.rating
+                current_elos[t_b] = engine.elo_b.rating
+                
                 if gf_a > gf_b:
                     next_round.append(t_a)
                 else:
                     next_round.append(t_b)
                 
-                # Propagación de fatiga de viaje (Acumulativa)
-                current_modifiers[t_a]["travel_fatigue"] = current_modifiers[t_a].get("travel_fatigue", 1.0) * 1.05
-                current_modifiers[t_b]["travel_fatigue"] = current_modifiers[t_b].get("travel_fatigue", 1.0) * 1.05
+                # Propagación de fatiga de viaje (Acumulativa) - Deshabilitada hasta tener datos reales de distancia de viaje
+                # Si se quiere mantener el concepto, condicionarlo a datos reales:
+                # current_modifiers[t_a]["travel_fatigue"] = current_modifiers[t_a].get("travel_fatigue", 1.0) * travel_penalty(t_a, venue_ciudad)
             
             # Avanzar a Cuartos, Semifinal, Final
             current_round = next_round

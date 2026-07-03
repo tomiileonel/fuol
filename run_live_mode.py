@@ -1,7 +1,7 @@
 import numpy as np
 from dotenv import load_dotenv
 import os
-from supreme_engine import SupremePredictionEngine
+from unified_engine import UnifiedEngine, run_prediction
 from live_api_connector import LiveAPIConnector
 import sqlite3
 import pandas as pd
