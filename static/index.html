@@ -1,49 +1,103 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FUOL v2.0 - Live Trading Control</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <title>FUOL 360° Quant Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Using Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="dashboard">
-        <header>
-            <h1>FUOL <span>v2.0</span></h1>
-            <div class="status-indicator" id="status-indicator">
-                <span class="pulse"></span> ESPERANDO DATOS...
+        <header class="glass-panel">
+            <h1>QUANT <span class="accent">360°</span> ENGINE</h1>
+            <div class="search-box">
+                <input type="text" id="matchIdInput" placeholder="Ej: Argentina_vs_France" value="Argentina_vs_France">
+                <button id="loadBtn">Sincronizar</button>
             </div>
         </header>
 
-        <div class="grid">
-            <div class="panel match-info glass">
-                <h2>AUSTRALIA vs EGIPTO</h2>
-                <p>16avos de Final | Sede: Arlington</p>
-                <div class="brier-score">
-                    Brier Histórico: <strong>0.15</strong> (Confianza Alta)
+        <main id="content" class="hidden">
+            <div class="teams-header glass-panel">
+                <div class="team" id="teamA">
+                    <h2 class="team-name">Team A</h2>
+                    <p class="coach">DT: <span>-</span></p>
+                </div>
+                <div class="vs">VS</div>
+                <div class="team" id="teamB">
+                    <h2 class="team-name">Team B</h2>
+                    <p class="coach">DT: <span>-</span></p>
                 </div>
             </div>
 
-            <div class="panel signal glass" id="signal-panel">
-                <div class="label">EDGE (ALPHA) DETECTADO</div>
-                <div class="value" id="alpha-val">0.00%</div>
-            </div>
+            <div class="grid-container">
+                <!-- Matemáticas Panel -->
+                <div class="card glass-panel math-panel">
+                    <h3>Ventaja Probabilística (Alpha)</h3>
+                    <div class="probs">
+                        <div class="prob-item">
+                            <span class="label">P(1) - Local</span>
+                            <span class="value accent" id="p1Value">0.0%</span>
+                        </div>
+                        <div class="prob-item">
+                            <span class="label">P(X) - Empate</span>
+                            <span class="value" id="pxValue">0.0%</span>
+                        </div>
+                        <div class="prob-item">
+                            <span class="label">P(2) - Visita</span>
+                            <span class="value accent" id="p2Value">0.0%</span>
+                        </div>
+                    </div>
+                    <div class="expected-goals">
+                        <div>&lambda; <span id="lamValue">0.0</span></div>
+                        <div>&mu; <span id="muValue">0.0</span></div>
+                    </div>
+                </div>
 
-            <div class="panel kelly glass" id="kelly-panel">
-                <div class="label">FRACCIÓN DE KELLY RECOMENDADA (10% ESCALA)</div>
-                <div class="value" id="kelly-val">0.00%</div>
-            </div>
+                <!-- Financiero Panel -->
+                <div class="card glass-panel finance-panel">
+                    <h3>Capitalización de Mercado</h3>
+                    <div class="finance-stats">
+                        <div class="stat">
+                            <span class="label" id="teamANameFin">Team A</span>
+                            <span class="value" id="valA">€0M</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label" id="teamBNameFin">Team B</span>
+                            <span class="value" id="valB">€0M</span>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="panel telemetry glass">
-                <div class="label">MOTOR STATS</div>
-                <div class="stat">P(Australia) [Engine]: <span id="engine-prob">0.0%</span></div>
-                <div class="stat">P(Australia) [Mercado]: <span id="market-prob">0.0%</span></div>
-                <div class="stat">Tick Market: <span id="tick-val">0</span></div>
+                <!-- Contexto NLP Panel -->
+                <div class="card glass-panel nlp-panel">
+                    <h3>Contexto Cualitativo (NLP)</h3>
+                    <div class="modifiers">
+                        <div class="mod-team">
+                            <h4 id="teamANameNLP">Team A</h4>
+                            <p>Lesiones: <span id="injA" class="mono">1.00x</span></p>
+                            <p>Fatiga: <span id="fatA" class="mono">1.00x</span></p>
+                        </div>
+                        <div class="mod-team">
+                            <h4 id="teamBNameNLP">Team B</h4>
+                            <p>Lesiones: <span id="injB" class="mono">1.00x</span></p>
+                            <p>Fatiga: <span id="fatB" class="mono">1.00x</span></p>
+                        </div>
+                    </div>
+                </div>
             </div>
+        </main>
+        
+        <div id="loading" class="loading-state glass-panel">
+            <div class="spinner"></div>
+            <p>Sincronizando Telemetría con Data Lake...</p>
+        </div>
+        
+        <div id="error" class="error-state glass-panel hidden">
+            <p id="errorMsg">Predicción no encontrada.</p>
         </div>
     </div>
-    
-    <script src="/static/app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
