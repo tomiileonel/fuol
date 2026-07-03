@@ -1,12 +1,12 @@
 import numpy as np
-from supreme_engine import SupremePredictionEngine
+from unified_engine import UnifiedEngine, TimeWeighter, DixonColes
 
 class MonteCarloTournament:
     def __init__(self, teams, team_histories, forms, n_simulations=10000, base_modifiers=None, black_swan_config=None):
         """
         teams: Lista de 16 selecciones en el orden estricto del Bracket.
         team_histories: Diccionario con la lista de partidos dinámicos base de cada equipo.
-        forms: Diccionario de formaciones tácticas.
+        forms: Diccionario de formaciones tácticas (ya no se usa en el motor unificado, pero se mantiene para compatibilidad).
         base_modifiers: Modificadores cualitativos iniciales (fatiga, localía).
         black_swan_config: Configuración estocástica de cisnes negros.
         """
@@ -17,6 +17,25 @@ class MonteCarloTournament:
         self.base_modifiers = base_modifiers or {}
         self.black_swan_config = black_swan_config or {}
         self.champions_distribution = {team: 0 for team in teams}
+        
+        # PRE-COMPUTE half_life and rho (Fix for Performance)
+        print("Pre-computando half_life y rho para simulaciones Monte Carlo...")
+        self.optimal_hl = {}
+        all_matches = []
+        for team in self.teams:
+            hist = self.base_histories.get(team, [])
+            self.optimal_hl[team] = TimeWeighter.optimize_half_life(hist)
+            all_matches.extend(hist)
+            
+        lam_all = np.mean([m.get('gf', 0) for m in all_matches]) if all_matches else 1.3
+        mu_all = np.mean([m.get('gc', 0) for m in all_matches]) if all_matches else 1.3
+        
+        if len(all_matches) >= 15:
+            dc = DixonColes()
+            self.precomputed_rho = dc.fit_rho(all_matches, lam_all, mu_all)
+        else:
+            self.precomputed_rho = -0.04
+        print(f"Pre-computación lista. rho = {self.precomputed_rho:.4f}")
 
     # ==============================================================================
     # 1. COLAPSO ESTOCÁSTICO DE LA MATRIZ
@@ -80,19 +99,23 @@ class MonteCarloTournament:
                 t_a = current_round[i]
                 t_b = current_round[i+1]
                 
-                # Instanciar el motor con el conocimiento que el equipo
-                # posee *en este momento exacto* de la línea temporal.
-                engine = SupremePredictionEngine(
+                # Instanciar el motor unificado con parámetros pre-computados
+                hl = (self.optimal_hl.get(t_a, 365) + self.optimal_hl.get(t_b, 365)) / 2.0
+                
+                engine = UnifiedEngine(
                     t_a, t_b, 
                     current_knowledge[t_a], current_knowledge[t_b], 
-                    self.forms,
+                    venue='N', # Neutral venue for knockout stage
                     modifiers_a=current_modifiers[t_a],
-                    modifiers_b=current_modifiers[t_b]
+                    modifiers_b=current_modifiers[t_b],
+                    half_life=hl,
+                    optimize_rho=False,
+                    precomputed_rho=self.precomputed_rho
                 )
                 
-                # Ejecutar cálculo tensorial y espectral
-                output, _ = engine.run_pipeline("4-3-3", "4-3-3")
-                matrix = output["Matriz Cruda"]
+                # Ejecutar cálculo
+                output = engine.predict()
+                matrix = output["score_matrix"]
                 
                 # Colapsar resultado probabilístico
                 gf_a, gf_b = self._stochastic_collapse(matrix)
