@@ -86,6 +86,34 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Portafolio / Paper Trading Panel -->
+                <div class="card glass-panel portfolio-panel">
+                    <h3>Paper Trading (Shadow Mode)</h3>
+                    <div class="portfolio-stats">
+                        <div class="stat">
+                            <span class="label">Bankroll Virtual</span>
+                            <span class="value gold-accent mono" id="bankrollValue">$10,000.00</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">ROI</span>
+                            <span class="value gold-accent mono" id="roiValue">0.00%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="trade-execution">
+                        <div class="trade-inputs">
+                            <select id="tradeSelection">
+                                <option value="1">Local (1)</option>
+                                <option value="X">Empate (X)</option>
+                                <option value="2">Visita (2)</option>
+                            </select>
+                            <input type="number" id="tradeOdds" placeholder="Cuota Merc." step="0.01" min="1.01">
+                        </div>
+                        <button id="execTradeBtn" class="btn-gold">EJECUTAR ORDEN</button>
+                    </div>
+                    <div id="tradeFeedback" class="hidden"></div>
+                </div>
             </div>
         </main>
         

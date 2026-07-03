@@ -74,12 +74,89 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Engine Prediction
         const pred = data.engine_prediction || {};
+        window.currentEnginePrediction = pred; // Guardar para Paper Trading
+        
         document.getElementById("p1Value").textContent = formatProb(pred.p1);
         document.getElementById("pxValue").textContent = formatProb(pred.px);
         document.getElementById("p2Value").textContent = formatProb(pred.p2);
         
         document.getElementById("lamValue").textContent = pred.lam ? pred.lam.toFixed(2) : "-";
         document.getElementById("muValue").textContent = pred.mu ? pred.mu.toFixed(2) : "-";
+        
+        // Refresh Portfolio
+        fetchPortfolio();
+    }
+
+    async function fetchPortfolio() {
+        try {
+            const response = await fetch("/api/portfolio");
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById("bankrollValue").textContent = `$${data.current_bankroll.toFixed(2)}`;
+                document.getElementById("roiValue").textContent = `${data.roi_percent.toFixed(2)}%`;
+            }
+        } catch (error) {
+            console.error("Error fetching portfolio:", error);
+        }
+    }
+
+    const execTradeBtn = document.getElementById("execTradeBtn");
+    const tradeFeedback = document.getElementById("tradeFeedback");
+
+    execTradeBtn.addEventListener("click", async () => {
+        const matchId = matchIdInput.value.trim();
+        const selection = document.getElementById("tradeSelection").value;
+        const oddsStr = document.getElementById("tradeOdds").value;
+        const odds = parseFloat(oddsStr);
+
+        if (!matchId || !window.currentEnginePrediction || !oddsStr || isNaN(odds) || odds <= 1) {
+            showFeedback("Datos inválidos para operar.", false);
+            return;
+        }
+
+        // Determinar probabilidad base del motor según selección
+        let engProb = 0;
+        if (selection === "1") engProb = window.currentEnginePrediction.p1;
+        else if (selection === "X") engProb = window.currentEnginePrediction.px;
+        else if (selection === "2") engProb = window.currentEnginePrediction.p2;
+
+        execTradeBtn.disabled = true;
+        execTradeBtn.textContent = "PROCESANDO...";
+        
+        try {
+            const response = await fetch(`/api/paper_trade/${matchId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    selection: selection,
+                    engine_prob: engProb,
+                    market_odds: odds
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                showFeedback(data.detail || "Error al ejecutar orden.", false);
+            } else {
+                showFeedback(`Orden EJECUTADA. Stake: $${data.trade.stake.toFixed(2)}`, true);
+                fetchPortfolio(); // Refrescar Bankroll
+            }
+        } catch (error) {
+            showFeedback("Fallo de red al operar.", false);
+        } finally {
+            execTradeBtn.disabled = false;
+            execTradeBtn.textContent = "EJECUTAR ORDEN";
+        }
+    });
+
+    function showFeedback(msg, isSuccess) {
+        tradeFeedback.textContent = msg;
+        tradeFeedback.className = isSuccess ? "feedback-success" : "feedback-error";
+        tradeFeedback.classList.remove("hidden");
+        setTimeout(() => {
+            tradeFeedback.classList.add("hidden");
+        }, 5000);
     }
 
     loadBtn.addEventListener("click", () => {

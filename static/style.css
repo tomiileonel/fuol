@@ -232,6 +232,85 @@ header h1 {
     margin-bottom: 0.25rem;
 }
 
+.gold-accent {
+    color: #FCD34D !important;
+    text-shadow: 0 0 10px rgba(252, 211, 77, 0.4);
+}
+
+.portfolio-panel {
+    border-color: rgba(252, 211, 77, 0.3);
+}
+
+.portfolio-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.trade-execution {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.trade-inputs {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.trade-inputs select, .trade-inputs input {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(252, 211, 77, 0.3);
+    color: var(--text-main);
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    outline: none;
+    flex: 1;
+}
+
+.btn-gold {
+    background: #D97706; /* Bronze/Gold */
+    color: #fff;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 800;
+    letter-spacing: 1px;
+    transition: all 0.3s ease;
+}
+
+.btn-gold:hover:not(:disabled) {
+    background: #B45309;
+    box-shadow: 0 0 15px rgba(217, 119, 6, 0.5);
+}
+
+.btn-gold:disabled {
+    background: #4B5563;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+#tradeFeedback {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.feedback-success {
+    background: rgba(5, 150, 105, 0.2);
+    border: 1px solid var(--accent-emerald);
+}
+
+.feedback-error {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid #EF4444;
+}
+
 .hidden {
     display: none !important;
 }
