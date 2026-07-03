@@ -101,15 +101,16 @@ def render_tournament_center(champions_distribution, n_simulations):
     # Generamos una curva de convergencia sintética para ilustrar cómo el modelo 
     # estabilizó las probabilidades del favorito a lo largo de las N iteraciones
     t_steps = np.linspace(1, n_simulations, 500)
-    noise = np.exp(-t_steps / (n_simulations*0.2)) * np.cos(t_steps * 0.05) * 5.0
-    convergence = probs[0] + noise
+    # Proyección estable honesta (flat line temporal), 
+    # hasta que el motor provea snapshots históricos.
+    convergence = np.full_like(t_steps, probs[0])
     
     ax3.plot(t_steps, convergence, color=ACCENT_SEC, linewidth=1.5, alpha=0.8)
     ax3.fill_between(t_steps, convergence, probs[0], color=ACCENT_SEC, alpha=0.1)
     
     ax3.axhline(probs[0], color=ACCENT_MAIN, linestyle='--', linewidth=1.5, label='Convergencia Terminal')
     
-    ax3.set_title("Estabilización de PageRank & Varianza", color=TEXT_MAIN, fontsize=12, pad=10, loc='left')
+    ax3.set_title("Estabilización de Elo & Varianza", color=TEXT_MAIN, fontsize=12, pad=10, loc='left')
     ax3.set_xlabel("Iteraciones de Monte Carlo", color=TEXT_MUTED, fontsize=9)
     ax3.set_ylabel("Prob. del Favorito (%)", color=TEXT_MUTED, fontsize=9)
     ax3.grid(color=GRID_COLOR, linestyle=':', linewidth=1)

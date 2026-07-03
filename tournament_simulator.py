@@ -34,7 +34,7 @@ class MonteCarloTournament:
             dc = DixonColes()
             self.precomputed_rho = dc.fit_rho(all_matches, lam_all, mu_all)
         else:
-            self.precomputed_rho = -0.04
+            self.precomputed_rho = -0.13
         print(f"Pre-computación lista. rho = {self.precomputed_rho:.4f}")
         
         # PRE-COMPUTE Elo Ratings (Fix for Performance)
@@ -136,16 +136,13 @@ class MonteCarloTournament:
                 
                 # PROPAGACIÓN DEL DRIFT: 
                 # El algoritmo asimila y aprende del resultado simulado.
-                res_a = "W" if gf_a > gf_b else "L"
-                res_b = "W" if gf_b > gf_a else "L"
-                
                 current_knowledge[t_a].append({
-                    "date": "2026-07-XX", "opponent": t_b, 
-                    "gf": gf_a, "gc": gf_b, "res": res_a
+                    "date": "2026-07-01", "opponent": t_b, 
+                    "gf": gf_a, "gc": gf_b, "res": "W" if gf_a > gf_b else "L"
                 })
                 current_knowledge[t_b].append({
-                    "date": "2026-07-XX", "opponent": t_a, 
-                    "gf": gf_b, "gc": gf_a, "res": res_b
+                    "date": "2026-07-01", "opponent": t_a, 
+                    "gf": gf_b, "gc": gf_a, "res": "W" if gf_b > gf_a else "L"
                 })
                 
                 # Update Incremental Elo inside the universe

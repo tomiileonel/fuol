@@ -283,8 +283,11 @@ class BayesianGoalRates:
         gc_list = np.array([m['gc'] for m in sorted_matches], dtype=float)
         
         # Suavizado para datos escasos
-        n = len(sorted_matches)
-        n_eff = max(1.0, np.sum(w) / np.max(w) if np.max(w) > 0 else n)
+        if len(w) == 0:
+            n_eff = 1.0
+        else:
+            n = len(w)
+            n_eff = max(1.0, (np.sum(w)**2) / np.sum(w**2) if np.sum(w**2) > 0 else n)
         
         # Prior basado en Elo (venue_modifier ya está integrado dentro de elo_ratio):
         prior_lam = AVG_GOALS_WC_HISTORICAL * elo_ratio
@@ -514,7 +517,7 @@ class UnifiedEngine:
             if optimize_rho and len(all_matches) >= 15:
                 self.rho = self.dc.fit_rho(all_matches, lam_all, mu_all)
             else:
-                self.rho = -0.04  # fallback informado
+                self.rho = -0.13  # fallback basado en literatura
     
     def predict(self) -> dict:
         """
