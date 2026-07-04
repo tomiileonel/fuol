@@ -380,9 +380,12 @@ class DixonColes:
                 if tau_val <= 0:
                     return 1e9
                 
-                p = (tau_val *
-                     stats.poisson.pmf(i, max(lam_hat, 0.01)) *
-                     stats.poisson.pmf(j, max(mu_hat, 0.01)))
+                import math
+                lam_c = max(lam_hat, 0.01)
+                mu_c = max(mu_hat, 0.01)
+                pmf_i = math.exp(-lam_c) * (lam_c**i) / math.factorial(i)
+                pmf_j = math.exp(-mu_c) * (mu_c**j) / math.factorial(j)
+                p = tau_val * pmf_i * pmf_j
                 ll += np.log(max(float(p), 1e-15))
             
             # Regularizador Bayesiano: log_prior(rho)
@@ -410,9 +413,12 @@ class DixonColes:
         for i in range(N):
             for j in range(N):
                 tau_val = self.tau(i, j, lam, mu, rho)
-                matrix[i, j] = (tau_val *
-                                 stats.poisson.pmf(i, max(lam, 0.01)) *
-                                 stats.poisson.pmf(j, max(mu, 0.01)))
+                import math
+                lam_c = max(lam, 0.01)
+                mu_c = max(mu, 0.01)
+                pmf_i = math.exp(-lam_c) * (lam_c**i) / math.factorial(i)
+                pmf_j = math.exp(-mu_c) * (mu_c**j) / math.factorial(j)
+                matrix[i, j] = tau_val * pmf_i * pmf_j
         
         # Renormalizar (suma ≠ 1.0 por truncación)
         total = matrix.sum()
@@ -685,13 +691,17 @@ class WalkForwardBacktester:
         team_a: str, team_b: str,
         all_matches_a: list[dict], all_matches_b: list[dict],
         venue: str = 'N',
+        half_life: Optional[float] = None,
+        optimize_rho: bool = True,
+        eval_start_idx: Optional[int] = None,
     ) -> dict:
         """
         Simulación walk-forward completa.
         """
         sorted_a = sorted(all_matches_a, key=lambda m: m.get('date', '1970-01-01'))
+        start_idx = max(self.min_train_size, eval_start_idx if eval_start_idx is not None else 0)
         
-        for k in range(self.min_train_size, len(sorted_a)):
+        for k in range(start_idx, len(sorted_a)):
             train_a = sorted_a[:k]
             test_m  = sorted_a[k]
             
@@ -707,7 +717,8 @@ class WalkForwardBacktester:
                     team_a=team_a, team_b=team_b,
                     matches_a=train_a, matches_b=train_b,
                     venue=venue,
-                    optimize_rho=True,
+                    half_life=half_life,
+                    optimize_rho=optimize_rho,
                 )
                 pred = engine.predict()
                 metrics = self.evaluate_match(
