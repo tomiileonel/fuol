@@ -71,7 +71,7 @@ class EloRating:
     # Multiplicador de conversión Elo → λ/μ
     # A_ELO_LAMBDA: factor escala para convertir ventaja Elo en ratio de goles
     ELO_SCALE = 400.0
-    LAMBDA_SCALE = 0.23   # NOTA: Este factor empírico idealmente debe ajustarse por regresión
+    LAMBDA_SCALE = 0.7695   # Calibrado por regresión Poisson (statsmodels GLM) sobre historial Kaggle
     
     COMP_K = {
         'WC 2026 Telemetry': K_WC,
@@ -676,6 +676,11 @@ class WalkForwardBacktester:
             for v in calibration_bins.values()
         )
         
+        rps_by_match = {
+            r['match'].get('date', f'unknown_{i}'): r['rps']
+            for i, r in enumerate(self.results)
+        }
+        
         return {
             'n_matches': n,
             'brier_score': round(bs, 4),
@@ -684,6 +689,7 @@ class WalkForwardBacktester:
             'hit_rate_pct': round(hit * 100, 1),
             'ece': round(ece, 4),
             'calibration': calibration_bins,
+            'rps_by_match': rps_by_match,
         }
     
     def run_walkforward(
@@ -698,6 +704,15 @@ class WalkForwardBacktester:
         """
         Simulación walk-forward completa.
         """
+        if half_life is None:
+            raise AssertionError(
+                "run_walkforward requiere half_life explícito. "
+                "half_life=None dispararía auto-optimización dentro de cada "
+                "fold del walk-forward, filtrando información del propio "
+                "fold hacia la selección del hiperparámetro (double dipping). "
+                "Corré fase2_barrido.py para elegir un half_life primero."
+            )
+
         sorted_a = sorted(all_matches_a, key=lambda m: m.get('date', '1970-01-01'))
         start_idx = max(self.min_train_size, eval_start_idx if eval_start_idx is not None else 0)
         
@@ -705,9 +720,9 @@ class WalkForwardBacktester:
             train_a = sorted_a[:k]
             test_m  = sorted_a[k]
             
-            # matches_b hasta la fecha del partido de evaluación
+            # matches_b estrictamente anteriores a test_date
             test_date = test_m.get('date', '9999-99-99')
-            train_b = [m for m in all_matches_b if m.get('date', '9999-99-99') <= test_date]
+            train_b = [m for m in all_matches_b if m.get('date', '9999-99-99') < test_date]
             
             if len(train_b) < 3:
                 continue  # insuficientes datos del oponente

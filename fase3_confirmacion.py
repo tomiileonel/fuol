@@ -106,10 +106,16 @@ def main():
                 "marginal_revisar" if diferencia > -0.01 else
                 "descartar_usar_default"
             ),
+            # RPS crudo por partido -- necesario para test_significancia.py.
+            # Sin esto, "diferencia" es un punto sin intervalo de confianza.
+            "rps_by_match_baseline": resultado_baseline_mitad2.get("rps_by_match", {}),
+            "rps_by_match_candidato": resultado_candidato_mitad2.get("rps_by_match", {}),
             "timestamp": datetime.now().isoformat(),
         }, f, indent=2, ensure_ascii=False)
  
     print("\n✅ Guardado en fase3_confirmacion_resultado.json")
+    print("   Corré test_significancia.py para saber si esa diferencia es real")
+    print("   o ruido de muestra -- el numero solo, sin CI, no alcanza para decidir.")
  
  
 if __name__ == "__main__":
