@@ -175,6 +175,34 @@ def main():
     print(f"Valor actual hardcodeado en unified_engine.py: 0.23")
     print(f"Diferencia relativa: {abs(beta1 - 0.23) / 0.23 * 100:.1f}%")
  
+    # exp(beta0) es el análogo fiteado de AVG_GOALS_WC_HISTORICAL (1.32).
+    # Si difieren de forma notoria, sustituir SOLO beta1 en LAMBDA_SCALE y
+    # dejar AVG_GOALS_WC_HISTORICAL=1.32 sin tocar mezcla una escala base
+    # calibrada contra Mundiales 2010-2022 con un exponente calibrado
+    # contra el dataset completo de Kaggle (partidos de todo tipo). El
+    # exponente y la escala base deben salir de la MISMA fuente de datos
+    # o el resultado combinado no es coherente con ninguno de los dos.
+    escala_base_fiteada = float(np.exp(beta0))
+    print(f"\nexp(beta0) [escala base implícita del fit]: {escala_base_fiteada:.4f}")
+    print(f"AVG_GOALS_WC_HISTORICAL actual (unified_engine.py): 1.32")
+    diff_escala_pct = abs(escala_base_fiteada - 1.32) / 1.32 * 100
+    if diff_escala_pct > 15:
+        print(f"⚠️  Difieren {diff_escala_pct:.1f}%. Sustituir solo beta1 y dejar")
+        print("   AVG_GOALS_WC_HISTORICAL=1.32 sin tocar es inconsistente: ese 1.32")
+        print("   fue calibrado contra Mundiales 2010-2022 (partidos de máxima")
+        print("   competitividad), y el dataset de Kaggle incluye amistosos y")
+        print("   clasificatorios con promedio de goles distinto. Reemplazar uno")
+        print("   sin el otro deja el modelo con una escala base y un exponente")
+        print("   estimados sobre poblaciones distintas.")
+        print("   Opciones: (a) recalibrar AVG_GOALS_WC_HISTORICAL también desde")
+        print("   este mismo fit (usar escala_base_fiteada), o (b) re-fittear")
+        print("   beta1 filtrando el dataset a partidos de competición oficial")
+        print("   equivalente a Mundial, para que ambas constantes vengan de la")
+        print("   misma población de partidos.")
+    else:
+        print(f"✅ Escala base consistente (diff {diff_escala_pct:.1f}%) -- sustituir")
+        print("   solo beta1 en LAMBDA_SCALE es razonable en este caso.")
+ 
     # Chequeo de consistencia: ajustar también solo con el subconjunto
     # "local" y solo "visitante" por separado. Si beta1 difiere mucho
     # entre ambos, el escalar único que usa EloRating.expected_goal_ratio

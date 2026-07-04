@@ -71,7 +71,7 @@ class EloRating:
     # Multiplicador de conversión Elo → λ/μ
     # A_ELO_LAMBDA: factor escala para convertir ventaja Elo en ratio de goles
     ELO_SCALE = 400.0
-    LAMBDA_SCALE = 0.4195   # Calibrado por regresión Poisson sobre logit(expected_score)
+    LAMBDA_SCALE = 0.23   # NOTA: Este factor empírico idealmente debe ajustarse por regresión
     
     COMP_K = {
         'WC 2026 Telemetry': K_WC,
