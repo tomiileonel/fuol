@@ -119,6 +119,8 @@ import numpy as np
 from scipy import optimize, stats
 from dataclasses import dataclass
 
+from config import MAX_KELLY_STAKE
+
 
 # ----------------------------------------------------------------------
 # 4.1 Kelly binario (referencia, ya probablemente en paper_trader.py)
@@ -176,9 +178,10 @@ def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
             return 1e6
         return -float(np.sum(probs * np.log(returns)))
 
+    effective_max_stake = min(max_total_stake, MAX_KELLY_STAKE)
     f0 = np.array([0.01, 0.01, 0.01])
-    bounds = [(0.0, max_total_stake)] * 3
-    constraint = optimize.LinearConstraint(np.ones(3), 0, max_total_stake)
+    bounds = [(0.0, effective_max_stake)] * 3
+    constraint = optimize.LinearConstraint(np.ones(3), 0, effective_max_stake)
 
     result = optimize.minimize(
         neg_expected_log_growth, f0, method="SLSQP",
