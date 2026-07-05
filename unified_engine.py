@@ -283,8 +283,15 @@ class BayesianGoalRates:
         w = weighter.compute_weights(sorted_matches)
         
         # Media ponderada de goles históricos (equivale a MLE con decaimiento)
-        gf_list = np.array([m['gf'] for m in sorted_matches], dtype=float)
-        gc_list = np.array([m['gc'] for m in sorted_matches], dtype=float)
+        gf_list = []
+        gc_list = []
+        for m in sorted_matches:
+            gf = m.get('gf', m.get('gh', 0))
+            gc = m.get('gc', m.get('ga', 0))
+            gf_list.append(float(gf))
+            gc_list.append(float(gc))
+        gf_list = np.array(gf_list, dtype=float)
+        gc_list = np.array(gc_list, dtype=float)
         
         # Suavizado para datos escasos
         if len(w) == 0:

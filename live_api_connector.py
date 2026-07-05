@@ -9,15 +9,18 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("LiveAPI")
 
 class LiveAPIConnector:
-    def __init__(self, engine, ws_url="ws://localhost:5001"):
+    def __init__(self, engine, ws_url="ws://localhost:5001", match_id="UNKNOWN", max_messages=None):
         self.engine = engine
         self.ws_url = ws_url
+        self.match_id = match_id
+        self.max_messages = max_messages
         self.logger_db = ProductionLogger()
         self.is_active = True
         
         # Parámetros de Riesgo
         self.LATENCY_LIMIT_MS = 2000.0
         self.ANOMALY_LIMIT = 0.20 # 20% absolute difference (3-sigma)
+        self.processed_messages = 0
 
     def normalize_data(self, raw_data):
         odds = raw_data.get("odds", {})
@@ -62,7 +65,7 @@ class LiveAPIConnector:
                     sent_time = raw_data.get("timestamp", receive_time)
                     latency = (receive_time - sent_time) * 1000
                     
-                    match_id = raw_data.get("match_id", "UNKNOWN")
+                    match_id = raw_data.get("match_id", self.match_id)
                     tick = raw_data.get("tick", 0)
                     
                     if latency > self.LATENCY_LIMIT_MS:
@@ -99,6 +102,11 @@ class LiveAPIConnector:
                         logger.info(f"[Tick {tick}] NO ACTION: Alpha {alpha*100:.2f}% | Lat: {latency:.0f}ms")
                         
                     self.logger_db.log_signal(match_id, engine_prob_a, market_prob_a, alpha, latency, "OK")
+                    self.processed_messages += 1
+                    if self.max_messages is not None and self.processed_messages >= self.max_messages:
+                        logger.info(f"Se alcanzó el límite de mensajes ({self.max_messages}). Finalizando conexión.")
+                        self.is_active = False
+                        break
                     
                 except websockets.exceptions.ConnectionClosed:
                     logger.error("Desconectado del servidor WebSocket.")

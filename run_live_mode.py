@@ -1,47 +1,73 @@
-import numpy as np
-from dotenv import load_dotenv
+import argparse
+import json
 import os
-from unified_engine import UnifiedEngine, run_prediction
-from live_api_connector import LiveAPIConnector
 import sqlite3
-import pandas as pd
-
 import subprocess
+import sys
 import time
+from pathlib import Path
 
-# 1. Cargar entorno
-load_dotenv()
-api_key = os.getenv("API_KEY", "NOT_FOUND")
-print(f"[+] Iniciando Sistema de Producción. API Key cargada: {'SI' if api_key != 'NOT_FOUND' else 'NO'}")
+import pandas as pd
+from dotenv import load_dotenv
 
-# Levantar Servidor Mock en background
-print("[+] Levantando Mock API Server en localhost:5000...")
-mock_server_process = subprocess.Popen(["python", "mock_api_server.py"])
-time.sleep(2) # Esperar a que el servidor encienda
+from live_api_connector import LiveAPIConnector
+from unified_engine_v3 import UnifiedEngineV3
 
-# 2. Configurar el Motor para un partido específico (ej. Francia vs Senegal)
-FORMACIONES = {
-    "4-3-3": np.array([[5,34], [25,14], [20,28], [20,40], [25,54], [45,20], [40,34], [45,48], [75,14], [80,34], [75,54]]),
-    "4-2-3-1": np.array([[5,34], [25,14], [20,28], [20,40], [25,54], [40,25], [40,43], [60,14], [65,34], [60,54], [85,34]])
-}
 
-hist_a = [{"gf": 2.5, "gc": 0.8, "res": "W"}, {"gf": 2.0, "gc": 0.5, "res": "W"}]
-hist_b = [{"gf": 1.2, "gc": 1.2, "res": "D"}, {"gf": 1.0, "gc": 1.5, "res": "L"}]
+def load_config(config_path: str) -> dict:
+    path = Path(config_path)
+    if path.exists():
+        with open(path, 'r', encoding='utf-8') as handle:
+            return json.load(handle)
+    return {}
 
-engine = SupremePredictionEngine("Francia", "Senegal", hist_a, hist_b, FORMACIONES)
 
-# 3. Iniciar el Orquestador HTTP
-connector = LiveAPIConnector(engine, match_id="FRA_SEN_WC26")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='FUOL live mode runner')
+    parser.add_argument('--config', default='config_v3/config_v3.json')
+    parser.add_argument('--match-id', default='FRA_SEN_WC26')
+    parser.add_argument('--ws-url', default='ws://localhost:5001')
+    parser.add_argument('--max-messages', type=int, default=3)
+    args = parser.parse_args()
 
-try:
-    # 4. Ejecutar el Bucle (Limitamos a 15 iteraciones para la demo)
-    connector.run_live_loop(iterations=15, interval=1)
-finally:
-    # Apagar el servidor mock al terminar
-    mock_server_process.terminate()
+    load_dotenv()
+    api_key = os.getenv('API_KEY', 'NOT_FOUND')
+    print(f"[+] Iniciando Sistema de Producción. API Key cargada: {'SI' if api_key != 'NOT_FOUND' else 'NO'}")
 
-# 5. Reporte Final de la Base de Datos SQLite
-print("\n[+] Extrayendo log de transacciones de production_log.db...")
-with sqlite3.connect("production_log.db") as conn:
-    df = pd.read_sql_query("SELECT * FROM live_signals ORDER BY id DESC LIMIT 5", conn)
-    print(df.to_string(index=False))
+    config = load_config(args.config)
+    print(f"[+] Cargando configuración desde {args.config}")
+
+    print("[+] Levantando Mock WebSocket Server en localhost:5001...")
+    mock_server_process = subprocess.Popen([sys.executable, 'mock_websocket_server.py'])
+    time.sleep(2)
+
+    hist_a = [
+        {"date": "2024-01-01", "home": "FRANCIA", "away": "SENEGAL", "gh": 2, "ga": 0, "minute": 10},
+        {"date": "2024-02-01", "home": "FRANCIA", "away": "MAROC", "gh": 1, "ga": 1, "minute": 30},
+    ]
+    hist_b = [
+        {"date": "2024-01-15", "home": "SENEGAL", "away": "CAMERUN", "gh": 1, "ga": 1, "minute": 45},
+        {"date": "2024-02-15", "home": "SENEGAL", "away": "TOGO", "gh": 2, "ga": 0, "minute": 60},
+    ]
+
+    engine = UnifiedEngineV3(
+        team_a='FRANCIA',
+        team_b='SENEGAL',
+        matches_a=hist_a,
+        matches_b=hist_b,
+        venue='H',
+        team_confederations={'FRANCIA': 'UEFA', 'SENEGAL': 'CAF'},
+        config=config,
+    )
+
+    connector = LiveAPIConnector(engine, ws_url=args.ws_url, match_id=args.match_id, max_messages=args.max_messages)
+
+    try:
+        connector.run()
+    finally:
+        mock_server_process.terminate()
+
+    print("\n[+] Extrayendo log de transacciones de production_log.db...")
+    with sqlite3.connect('production_log.db') as conn:
+        df = pd.read_sql_query('SELECT * FROM live_signals ORDER BY id DESC LIMIT 5', conn)
+        print(df.to_string(index=False))
