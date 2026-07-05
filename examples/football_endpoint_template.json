@@ -1,0 +1,20 @@
+{
+  "matches": [
+    {
+      "date": "2024-01-15",
+      "home": "Brasil",
+      "away": "Noruega",
+      "gh": 2,
+      "ga": 1,
+      "competition": "Amistoso"
+    },
+    {
+      "date": "2024-01-22",
+      "home": "Argentina",
+      "away": "Francia",
+      "gh": 3,
+      "ga": 5,
+      "competition": "Amistoso"
+    }
+  ]
+}
