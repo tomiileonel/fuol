@@ -1,0 +1,9 @@
+Fuentes gratuitas recomendadas para probar FUOL sin gastar dinero:
+- ScoreBat API (datos de partidos y videos): https://www.scorebat.com/video-api/v3/
+- OpenFootball (fixtures y resultados públicos): https://github.com/openfootball/football.json
+- Football-data.org free tier (siempre que esté disponible y sin coste para el uso inicial): https://www.football-data.org/
+- TheSportsDB free endpoints: https://www.thesportsdb.com/
+
+Uso recomendado para este proyecto:
+- Configurar EXTERNAL_DATA_URL con una URL pública JSON.
+- Ejecutar: python sync_external_data.py --source-url <URL>
