@@ -139,7 +139,8 @@ def kelly_binary(prob_win: float, decimal_odds: float) -> float:
 # 4.2 Kelly Multi-Resultado (1X2 simultáneo)
 # ----------------------------------------------------------------------
 def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
-                         max_total_stake: float = 1.0) -> dict:
+                         max_total_stake: float = 1.0,
+                         uncertainty: np.ndarray | None = None) -> dict:
     """
     probs: array [p1, pX, p2] -- probabilidades del modelo (deben sumar
         ~1; se renormalizan si no).
@@ -162,6 +163,8 @@ def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
     probs = np.asarray(probs, dtype=float)
     probs = probs / probs.sum()
     odds = np.asarray(decimal_odds, dtype=float)
+    uncertainty = np.asarray(uncertainty if uncertainty is not None else np.ones_like(probs), dtype=float)
+    uncertainty = np.clip(uncertainty, 1e-3, None)
 
     def neg_expected_log_growth(f):
         f1, fX, f2 = f
@@ -195,6 +198,8 @@ def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
     f_opt = np.where(f_opt < 1e-6, 0.0, f_opt)
 
     expected_log_growth = -neg_expected_log_growth(f_opt) if result.success else np.nan
+    uncertainty_penalty = float(np.mean(1.0 / uncertainty))
+    scaled_total_stake = float(f_opt.sum() / max(uncertainty_penalty, 1e-3))
 
     return {
         "stake_1": float(f_opt[0]),
@@ -203,6 +208,8 @@ def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
         "total_stake": float(f_opt.sum()),
         "expected_log_growth": float(expected_log_growth),
         "converged": bool(result.success),
+        "uncertainty_penalty": uncertainty_penalty,
+        "effective_total_stake": min(scaled_total_stake, effective_max_stake),
         "implied_edges": {
             "1": float(probs[0] * odds[0] - 1),
             "X": float(probs[1] * odds[1] - 1),

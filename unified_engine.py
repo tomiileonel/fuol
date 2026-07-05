@@ -18,6 +18,10 @@ from scipy import stats, optimize
 from typing import Optional
 import warnings
 
+from hawkes_goals_process import HawkesGoalsProcess, HawkesParameters
+from quantum_match_state import MatchOutcome, QuantumAmplitudes, QuantumMatchState
+from pass_network_topology import PassNetworkAnalyzer
+
 warnings.filterwarnings('ignore')
 
 # ---------------------------------------------------------------------------
@@ -527,63 +531,78 @@ class UnifiedEngine:
     
     def predict(self) -> dict:
         """
-        Genera predicción completa.
+        Genera predicción completa con extensiones opcionales Hawkes/cuánticas/topológicas.
         """
-        # 1. Ratios Elo → modificador de goles
         elo_ratio_a = self.elo_a.expected_goal_ratio(self.elo_b.rating, self.venue)
         elo_ratio_b = 1.0 / elo_ratio_a
-        
-        # 2. Tasas Bayesianas con prior Elo (Home advantage ya incluido en elo_ratio)
+
         lam, lam_def, lam_std, _, alpha_lam, beta_lam = self.bayes.compute_rates(
             self.matches_a, elo_ratio_a, self.weighter, self.modifiers_a
         )
         mu, mu_def, mu_std, _, alpha_mu, beta_mu = self.bayes.compute_rates(
             self.matches_b, elo_ratio_b, self.weighter, self.modifiers_b
         )
-        
-        # Ajuste cruzado defensa: λ_final = √(λ_ataque_A × λ_concedido_B)
-        # Esto pondera la capacidad ofensiva A contra la capacidad defensiva B
+
         lam_final = np.sqrt(lam * mu_def) if mu_def > 0 else lam
-        mu_final  = np.sqrt(mu * lam_def) if lam_def > 0 else mu
-        
-        # 3. Matriz Dixon-Coles
+        mu_final = np.sqrt(mu * lam_def) if lam_def > 0 else mu
+
+        hawkes_home = HawkesGoalsProcess().fit([m.get('minute', 0.0) for m in self.matches_a if m.get('minute')])
+        hawkes_away = HawkesGoalsProcess().fit([m.get('minute', 0.0) for m in self.matches_b if m.get('minute')])
+        lam_hawkes = hawkes_home.expected_goals_90min
+        mu_hawkes = hawkes_away.expected_goals_90min
+
+        w_dc = min(1.0, len(self.matches_a) / 30.0)
+        w_hw = 1.0 - w_dc
+        lam_final = w_dc * lam_final + w_hw * lam_hawkes
+        mu_final = w_dc * mu_final + w_hw * mu_hawkes
+
         matrix = self.dc.score_matrix(lam_final, mu_final, self.rho)
-        
-        # 4. 1X2 + marcadores
         p1, px, p2 = self.dc.extract_1x2(matrix)
         top_5 = self.dc.top_k_scores(matrix, k=5)
-        
-        # 5. Intervalos de credibilidad - FIX #2
+
         ci_lam = self.bayes.predictive_credible_interval(alpha_lam, beta_lam)
         ci_mu = self.bayes.predictive_credible_interval(alpha_mu, beta_mu)
-        
+
+        q_state = QuantumMatchState(
+            state=QuantumAmplitudes.from_probabilities_and_phases(MatchOutcome(p1, px, p2))
+        )
+        if self.venue == 'H':
+            q_state = q_state.apply_home_advantage(strength=0.15)
+        elif self.venue == 'A':
+            q_state = q_state.apply_home_advantage(strength=-0.15)
+
+        if self.modifiers_a.get('injury_modifier', 1.0) < 0.9:
+            q_state = q_state.apply_injury_impact('home', severity=1.0 - self.modifiers_a.get('injury_modifier', 1.0))
+        if self.modifiers_b.get('injury_modifier', 1.0) < 0.9:
+            q_state = q_state.apply_injury_impact('away', severity=1.0 - self.modifiers_b.get('injury_modifier', 1.0))
+
+        final_probs = q_state.collapse()
+
+        network_features = None
+        if hasattr(self, 'pass_matrix_a') and self.pass_matrix_a is not None:
+            analyzer = PassNetworkAnalyzer()
+            network_features = analyzer.analyze(self.pass_matrix_a).as_feature_vector().tolist()
+
         return {
-            # 1X2
-            'p1': round(p1, 4),
-            'px': round(px, 4),
-            'p2': round(p2, 4),
-            
-            # Marcadores exactos
+            'p1': round(final_probs.home, 4),
+            'px': round(final_probs.draw, 4),
+            'p2': round(final_probs.away, 4),
             'top_5_scores': top_5,
-            
-            # Goles esperados
             'lam': round(lam_final, 3),
-            'mu':  round(mu_final, 3),
+            'mu': round(mu_final, 3),
             'lam_std': round(lam_std, 3),
-            'mu_std':  round(mu_std, 3),
-            
-            # Intervalos de credibilidad 90% para λ y μ
+            'mu_std': round(mu_std, 3),
             'ci_lam_90': (round(ci_lam[0], 3), round(ci_lam[1], 3)),
-            'ci_mu_90':  (round(ci_mu[0], 3), round(ci_mu[1], 3)),
-            
-            # Diagnóstico del modelo
+            'ci_mu_90': (round(ci_mu[0], 3), round(ci_mu[1], 3)),
             'elo_a': round(self.elo_a.rating, 1),
             'elo_b': round(self.elo_b.rating, 1),
-            'rho':   round(self.rho, 4),
+            'rho': round(self.rho, 4),
             'half_life_days': round(self.half_life, 1),
-            
-            # Matriz completa (para visualización)
             'score_matrix': matrix,
+            'quantum_coherence': round(q_state.state.coherence_measure(), 4),
+            'hawkes_home': round(lam_hawkes, 3),
+            'hawkes_away': round(mu_hawkes, 3),
+            'network_features': network_features,
         }
 
 
