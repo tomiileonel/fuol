@@ -2,6 +2,10 @@
 
 FUOL (Football Unified Optimization Layer) es un sistema cuantitativo para predicción deportiva y trading algorítmico en fútbol. Integra un motor estadístico basado en Dixon-Coles, un pipeline de datos, gestión de riesgo con Kelly y una API para consultar predicciones y ejecutar paper trading.
 
+## Política del proyecto
+
+Este proyecto sigue una filosofía de 0% inversión: no se implementarán flujos que requieran dinero real, pagos de APIs comerciales ni operaciones financieras reales. Cuando se integre datos externos, solo se usarán fuentes gratuitas, públicas o de demostración.
+
 ## Características principales
 
 - Motor estadístico unificado para predicción 1X2.
@@ -27,6 +31,13 @@ pip install pytest
 ## Variables de entorno
 
 Copie el archivo [.env.example](.env.example) a .env y ajuste los valores según su entorno.
+
+Para datos externos gratuitos, puede definir:
+
+```bash
+EXTERNAL_DATA_URL=https://example.com/fixtures
+EXTERNAL_DATA_API_KEY=opcional
+```
 
 ```bash
 copy .env.example .env
