@@ -21,8 +21,13 @@ except Exception:  # pragma: no cover - optional dependency
     PaperTrader = None
 
 from unified_engine_v3 import UnifiedEngineV3
+from cache import PredictionCache
+from backtesting import run_rolling_backtest
+from rate_limit import RateLimiter
 
 app = FastAPI(title="FUOL 360 API")
+cache = PredictionCache(ttl_seconds=300)
+rate_limiter = RateLimiter(limit_per_minute=60)
 
 # Setup MongoDB Connection
 client = None
@@ -107,7 +112,33 @@ def _build_live_prediction(match_id: str) -> dict[str, Any]:
 @app.get("/api/live_prediction/{match_id}")
 async def get_live_prediction(match_id: str):
     """Expose a live v3 prediction for a supported match."""
-    return _build_live_prediction(match_id)
+    if not rate_limiter.allow():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    cached = cache.get(match_id=match_id, payload={"route": "live_prediction"})
+    if cached is not None:
+        return cached
+    result = _build_live_prediction(match_id)
+    cache.set(match_id=match_id, payload={"route": "live_prediction"}, value=result)
+    return result
+
+
+@app.get("/api/monitoring")
+async def monitoring_summary():
+    sample_matches = [
+        {"home": "BRASIL", "away": "NORUEGA", "gh": 2, "ga": 1},
+        {"home": "BRASIL", "away": "NORUEGA", "gh": 1, "ga": 0},
+        {"home": "BRASIL", "away": "NORUEGA", "gh": 1, "ga": 1},
+    ]
+    summary = run_rolling_backtest(sample_matches, window=2)
+    return {
+        "status": "ok",
+        "backtest": {
+            "brier_score": summary.brier_score,
+            "log_loss": summary.log_loss,
+            "hit_rate": summary.hit_rate,
+            "n_samples": summary.n_samples,
+        },
+    }
 
 
 @app.get("/api/portfolio")
