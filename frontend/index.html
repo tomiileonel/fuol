@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FUOL Quant Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="terminal-container">
+        <header class="terminal-header">
+            <h1>FUOL // QUANT ENGINE</h1>
+            <span class="status-badge">STATUS: ONLINE</span>
+        </header>
+
+        <section class="input-section">
+            <div class="input-box">
+                <label>TEAM A (HOME)</label>
+                <input type="text" id="teamA" placeholder="e.g. ARGENTINA" autocomplete="off">
+            </div>
+            <div class="vs-badge">VS</div>
+            <div class="input-box">
+                <label>TEAM B (AWAY)</label>
+                <input type="text" id="teamB" placeholder="e.g. SUIZA" autocomplete="off">
+            </div>
+            <button id="predictBtn" onclick="runPrediction()">
+                <div class="btn-loader"></div>
+                <span>EXECUTE INFERENCE</span>
+            </button>
+        </section>
+
+        <div id="errorMsg" class="error-msg hidden"></div>
+
+        <section id="resultsSection" class="hidden">
+            <div class="probs-container">
+                <div class="prob-card home" id="probHome">
+                    <div class="prob-label">P(HOME WIN)</div>
+                    <div class="prob-value">0.0%</div>
+                </div>
+                <div class="prob-card draw" id="probDraw">
+                    <div class="prob-label">P(DRAW)</div>
+                    <div class="prob-value">0.0%</div>
+                </div>
+                <div class="prob-card away" id="probAway">
+                    <div class="prob-label">P(AWAY WIN)</div>
+                    <div class="prob-value">0.0%</div>
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="card">
+                    <h3>STRUCTURAL RATES (POISSON)</h3>
+                    <div class="lambda-display">
+                        <div class="lambda-item">
+                            <span>EXP. GOALS (HOME) [&lambda;]</span>
+                            <strong id="lambdaA">0.00</strong>
+                        </div>
+                        <div class="lambda-item">
+                            <span>EXP. GOALS (AWAY) [&mu;]</span>
+                            <strong id="lambdaB">0.00</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>TOP 5 EXACT SCORES</h3>
+                    <div class="scores-list" id="topScores">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
