@@ -50,37 +50,50 @@ class DataPipeline:
         df, elo_registry = self.compute_features(df)
         return df, elo_registry
         
-    def get_team_history(self, df: pd.DataFrame, team: str) -> list[dict]:
+    def get_team_history(self, df: pd.DataFrame, team: str) -> list:
         """
-        Extracts chronological match history for a specific team as a list of dicts.
-        Format compatible with UnifiedEngine.
+        Obtiene el historial de un equipo estandarizando las claves para el UnifiedEngine.
+        El motor requiere 'gf' (goles a favor) y 'gc' (goles en contra) desde la 
+        perspectiva del equipo, independientemente de si jugó de local o visitante.
         """
-        team_df = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
+        # Filtrar partidos donde el equipo participó
+        mask = (df['home_team'] == team) | (df['away_team'] == team)
+        team_df = df[mask].copy()
+        
+        # Ordenar por fecha cronológica
+        team_df = team_df.sort_values('date')
         
         history = []
         for _, row in team_df.iterrows():
             is_home = row['home_team'] == team
-            opp = row['away_team'] if is_home else row['home_team']
-            gf = row['home_score'] if is_home else row['away_score']
-            gc = row['away_score'] if is_home else row['home_score']
-            venue = 'N' if row.get('neutral', False) else ('H' if is_home else 'A')
             
-            # Extract features computed by feature engine
-            gf_ewma = row['ewma_home_gf'] if is_home else row['ewma_away_gf']
-            ga_ewma = row['ewma_home_ga'] if is_home else row['ewma_away_ga']
-            elo_pre = row['elo_home_pre'] if is_home else row['elo_away_pre']
+            # Extraer goles desde la perspectiva del equipo objetivo
+            # (Acepta tanto home_score/away_score como gh/ga por si el CSV cambia)
+            home_score = row.get('home_score', row.get('gh', 0))
+            away_score = row.get('away_score', row.get('ga', 0))
             
-            match_dict = {
-                'date': row['date'].strftime('%Y-%m-%d'),
-                'opponent': opp,
-                'venue': venue,
-                'gf': gf,
-                'gc': gc,
-                'competition': row['tournament'],
+            gf = int(home_score) if is_home else int(away_score)
+            gc = int(away_score) if is_home else int(home_score)
+            
+            # Extract features computed by feature engine for compatibility
+            gf_ewma = row.get('ewma_home_gf', 0) if is_home else row.get('ewma_away_gf', 0)
+            ga_ewma = row.get('ewma_home_ga', 0) if is_home else row.get('ewma_away_ga', 0)
+            elo_pre = row.get('elo_home_pre', 1600.0) if is_home else row.get('elo_away_pre', 1600.0)
+            
+            history.append({
+                'date': str(row['date']),
+                'home': row['home_team'],
+                'away': row['away_team'],
+                'opponent': row['away_team'] if is_home else row['home_team'],
+                'venue': 'N' if row.get('neutral', False) else ('H' if is_home else 'A'),
+                'gf': gf,  # Goals For (Estandarizado)
+                'gc': gc,  # Goals Against (Estandarizado)
+                'gh': int(home_score), # Mantener originales por compatibilidad
+                'ga': int(away_score),
+                'tournament': row.get('tournament', 'Unknown'),
                 'elo_pre': elo_pre,
                 'gf_ewma': gf_ewma,
                 'ga_ewma': ga_ewma
-            }
-            history.append(match_dict)
+            })
             
         return history
