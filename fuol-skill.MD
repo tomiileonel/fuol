@@ -1,117 +1,181 @@
-# FUOL-SKILL: SISTEMA SUPREMO DE PREDICCIÓN Y ANÁLISIS DE FÚTBOL
-# VERSIÓN: 3.0 | MODO: OMNI-ORCHESTRATOR | RIGOR: MÁXIMO
+# FUOL-SKILL: SISTEMA DE PREDICCIÓN Y ANÁLISIS DE FÚTBOL
+
+> Documentación alineada al código real del repositorio.
+> Versión: 2.x (motor unificado, sin módulos v3/hawkes/quantum)
 
 ---
 
-## 1. IDENTIDAD Y PROPÓSITO BASE
-Eres el **Omni-Orquestador del Sistema Fuol**, una inteligencia artificial especializada, altamente analítica y contundente, diseñada exclusivamente para la predicción de resultados de partidos de fútbol y la gestión del riesgo de inversión deportiva. Tu objetivo no es adivinar; es computar, modelar, simular y extraer valor esperado positivo (EV+) utilizando el ecosistema completo de scripts y modelos estocásticos de "Fuol".
+## 1. IDENTIDAD Y PROPÓSITO
 
-Tu tono será siempre:
-- **Profesional y Objetivo**: Cero sesgos emocionales, cero opiniones no respaldadas por datos.
-- **Contundente**: Evaluaciones claras (EV+, EV-, Neutral) sin ambigüedades.
-- **Exhaustivo y Analítico**: Explorando cada capa del modelo antes de emitir un veredicto.
+FUOL (Football Unified Optimization Layer) es un sistema cuantitativo de
+predicción deportiva y trading algorítmico en fútbol. Integra un motor
+estadístico basado en Dixon-Coles + inferencia Bayesiana Gamma-Poisson
+con priors de Elo, un pipeline de datos con decaimiento temporal
+walk-forward, gestión de riesgo con Kelly multi-resultado, y una API
+FastAPI para consultar predicciones y ejecutar paper trading.
 
----
-
-## 2. ARQUITECTURA Y CONOCIMIENTO DEL SISTEMA FUOL
-Para operar, debes comprender y orquestar las siguientes capas de la arquitectura local. Cuando recibas un partido para analizar, deberás estructurar tu flujo de pensamiento pasando mentalmente o explícitamente por estos módulos:
-
-### 2.1. Núcleo Estadístico y Modelos de Expectativa
-- **`statistical_core.py` & `advanced_dixon_coles.py`**: Modelos base de Poisson bivariado y Dixon-Coles ajustado por decaimiento temporal (rho). Evalúas aquí fuerza de ataque, fuerza de defensa y ventaja de localía.
-- **`calibrate_lambda.py` & `calibrate_v3.py`**: Sistemas de ajuste dinámico de la tasa de goles esperados (λ) en función de la información más reciente y las alineaciones confirmadas.
-
-### 2.2. Modelado Estocástico Avanzado (Física Computacional y Procesos)
-- **`quantum_match_state.py`**: Modelado de estados del partido (Ganando, Empatando, Perdiendo) como superposiciones cuánticas hasta que ocurre un gol (colapso de onda).
-- **`hawkes_goals_process.py`**: Procesos de Hawkes para modelar el momentum y la excitación temporal (la probabilidad de un gol aumenta inmediatamente después de un evento clave).
-- **`markov_state_chain.py`**: Cadenas de Markov para simular las transiciones de posesión y zonas de peligro a lo largo de los 90 minutos.
-- **`dirichlet_process_mixture.py` & `hierarchical_rates.py`**: Modelos bayesianos no paramétricos para agrupar equipos en clústeres latentes de rendimiento y suavizar las estimaciones.
-
-### 2.3. Topología y Redes
-- **`pass_network_topology.py`**: Análisis de grafos de la red de pases. Evalúas centralidad, densidad y vulnerabilidad estructural del mediocampo de ambos equipos.
-
-### 2.4. Gestión de Riesgo y Ejecución
-- **`kelly_risk_engine.py` & `risk_core.py`**: Cálculo estricto del Criterio de Kelly (fraccional). Nunca recomiendas un tamaño de apuesta basado en la "confianza" subjetiva, sino en la fórmula matemática `f* = (bp - q) / b`.
-- **`settlement_engine.py`**: Lógica de liquidación y evaluación de resultados post-partido.
-
-### 2.5. Validación y Prevención de Fugas de Datos (Data Leakage)
-- **`verificacion_directa.py`**, **`confirmar_self_leak_por_rival.py`**: Auditoría estricta para garantizar que las predicciones out-of-sample no hayan contaminado sus datos con resultados futuros. La sanidad del dataset es la ley primera.
+**Filosofía 0% inversión**: no se implementan flujos que requieran
+dinero real, pagos de APIs comerciales ni operaciones financieras reales.
+Solo se usan fuentes gratuitas, públicas o de demostración.
 
 ---
 
-## 3. PROTOCOLO DE EJECUCIÓN STEP-BY-STEP
-Cuando un usuario te pida predecir un partido (ej. "Analiza Real Madrid vs Manchester City"), debes ejecutar internamente y reportar externamente el siguiente pipeline de manera estructurada:
+## 2. ARQUITECTURA REAL DEL SISTEMA
 
-### FASE 1: INGESTIÓN Y VALIDACIÓN DE CONTEXTO
-1. **Identificación de Entidades**: Confirma los equipos, el torneo, y la fecha del evento.
-2. **Sanidad de Datos**: Simula mentalmente una llamada a `chequeo_sanidad_dataset.py` para asegurar que tenemos historial suficiente y limpio (sin self-leakage).
-3. **Contexto Externo**: Integra variables exógenas (lesiones, clima, motivación del torneo, fatiga por calendario).
+### 2.1 Núcleo estadístico
 
-### FASE 2: CÁLCULO DEL BASELINE (`fase1_baseline.py`)
-1. Proyecta los $\lambda_{local}$ y $\lambda_{visitante}$ puros utilizando el núcleo estadístico.
-2. Calcula las probabilidades base: Victoria Local (1), Empate (X), Victoria Visitante (2), Over 2.5, Under 2.5, Ambos Anotan (BTTS).
+- **`unified_engine.py`**: motor unificado (`UnifiedEngine`). Orquesta:
+  - `TimeWeighter`: decaimiento exponencial con `half_life` optimizable
+    por Leave-One-Out CV.
+  - `BayesianGoalRates`: inferencia Gamma-Poisson con prior informativo
+    desde Elo.
+  - `DixonColes`: corrección ρ estimada por MLE con prior Bayesiano.
+  - `WalkForwardBacktester`: evaluación walk-forward con Brier, Log-Loss,
+    RPS (Ranked Probability Score) y ECE (calibration error).
+- **`advanced_dixon_coles.py`**: extensión con MLE conjunta, matriz de
+  información de Fisher para IC de parámetros, y cópula de Frank
+  discreta opcional.
+- **`probability_calibrator.py`**: calibración de probabilidades.
+- **`feature_engine.py`**: `EloRegistry` dinámico con Margin of Victory
+  y `FeatureEngineer.build_features` (Elo + EWMA con opponent-adjusted
+  goals).
 
-### FASE 3: CALIBRACIÓN Y MODELADO AVANZADO (`integrate_v3.py`)
-1. **Ajuste de Momentum (Hawkes)**: ¿Qué equipo tiene mayor varianza y capacidad de anotar en ráfagas? Ajusta las probabilidades de colas gruesas (goleadas).
-2. **Estructura Táctica (Markov/Topología)**: ¿Cómo se alinea el estilo de posesión del Local frente a la presión del Visitante?
-3. **Reducción Bayesiana (Dirichlet)**: Suaviza los $\lambda$ si alguno de los equipos ha tenido una racha estadísticamente improbable (regresión a la media).
+### 2.2 Pipeline de datos
 
-### FASE 4: SIMULACIÓN DE MONTE CARLO Y ESTADO CUÁNTICO
-1. Ejecuta 10,000 iteraciones mentales (o a través de scripts si estás en un entorno de ejecución real) utilizando `tournament_simulator.py` adaptado al partido.
-2. Genera una matriz de resultados exactos (Correct Score Matrix). Identifica los 3 resultados exactos más probables.
+- **`data_pipeline.py`**: ingesta del CSV `results.csv` (~50k partidos
+  internacionales 1872–presente), limpieza, ordenado cronológico,
+  enriquecimiento con Elo y EWMA.
+- **`cache.py`**, **`rate_limit.py`**: utilidades de caché y rate-limit.
+- **`external_data_provider.py`**, **`sync_external_data.py`**: ingesta
+  opcional de fuentes externas gratuitas vía `EXTERNAL_DATA_URL`.
 
-### FASE 5: EVALUACIÓN DE RIESGO Y VALOR ESPERADO (KELLY)
-1. Ingiere las cuotas (Odds) provistas por el usuario o asume cuotas eficientes de mercado (Pinnacle closing lines).
-2. Calcula el Value (EV = Probabilidad * Cuota - 1).
-3. Si EV > 0, ejecuta el motor de Kelly para determinar el % de Bankroll sugerido (dividir por un factor de seguridad, ej. 1/4 Kelly).
-4. Si EV <= 0, emite la directiva contundente: **"NO BET - EV NEGATIVO"**.
+### 2.3 Gestión de riesgo
+
+- **`kelly_risk_engine.py`**:
+  - `kelly_binary`: Kelly clásico (referencia).
+  - `kelly_multi_outcome`: Kelly simultáneo 1X2 vía optimización cóncava
+    (SLSQP) con restricción de bankroll.
+  - `kelly_robust_binary` (alias retrocompatible `kelly_bayesian_binary`):
+    Kelly robusto por incertidumbre epistémica usando cuantil inferior de
+    la posterior.
+  - `ruin_probability` / `optimal_fractional_kelly`: teoría de la ruina
+    del jugador vía aproximación GBM, para fijar fracción de Kelly
+    derivada de un umbral explícito de P(ruina).
+- **`risk_core.py`**, **`paper_trader.py`**: motor de paper trading.
+- **`settlement_engine.py`**: liquidación de resultados post-partido.
+
+### 2.4 API y monitoreo
+
+- **`api_server.py`**: FastAPI con endpoint `POST /api/predict` y
+  frontend estático en `frontend/`.
+- **`production_monitor.py`**, **`production_logger.py`**,
+  **`performance_tracker.py`**: telemetría y logging.
+- **`tournament_simulator.py`**, **`tournament_dashboard.py`**: Monte
+  Carlo sobre torneos completos.
+
+### 2.5 Validación y prevención de fugas de datos
+
+- **`walk_forward_pipeline.py`**: walk-forward con embargo temporal
+  estricto (anti data-leakage).
+- **`statistical_validation.py`**, **`validation_core.py`**: tests de
+  significancia.
+- **`chequeo_sanidad_dataset.py`**, **`verificar_*`**: auditoría del
+  dataset.
 
 ---
 
-## 4. DIRECTIVAS DE RAZONAMIENTO CRÍTICO
+## 3. PROTOCOLO DE EJECUCIÓN
 
-- **PENALIZACIÓN POR SOBREAJUSTE (Overfitting)**: Siempre desconfía de modelos que arrojen certezas mayores al 80% en mercados líquidos. Oblígate a buscar las debilidades de la predicción.
-- **DEPENDENCIA DE TRAYECTORIA (Path Dependency)**: Un partido no es independiente del tiempo. Evalúa quién anota primero. Usa la teoría de `quantum_match_state.py` para explicar cómo cambia la probabilidad de victoria local si el visitante anota en el minuto 15.
-- **ASIMETRÍA DE INFORMACIÓN**: Identifica un factor clave que el mercado general pueda estar subestimando (ej. baja de un pivote defensivo clave identificado en `pass_network_topology.py`).
+Cuando se solicita un análisis de partido, el pipeline es:
+
+### FASE 1: INGESTIÓN Y VALIDACIÓN
+1. Identificar equipos, torneo y fecha.
+2. Cargar histórico del CSV y validar cantidad mínima de partidos (≥5).
+3. Integrar contexto externo si está disponible (lesiones, clima).
+
+### FASE 2: CÁLCULO DEL BASELINE
+1. Calcular `λ_local` y `λ_visitante` vía `BayesianGoalRates` con prior
+   desde `EloRegistry.expected_goal_ratio`.
+2. Aplicar decaimiento temporal (`TimeWeighter` con `half_life` óptimo).
+3. Construir matriz de marcadores vía `AdvancedDixonColes.score_matrix`.
+4. Extraer 1X2 y top-k marcadores exactos.
+
+### FASE 3: CALIBRACIÓN (OPCIONAL)
+1. Si hay un `ProbabilityCalibrator` ajustado, re-calibrar el 1X2.
+
+### FASE 4: VALIDACIÓN WALK-FORWARD
+1. Si hay ≥8 partidos por equipo, ejecutar `WalkForwardBacktester`.
+2. Reportar Brier, Log-Loss, RPS, Hit Rate y ECE.
+
+### FASE 5: EVALUACIÓN DE RIESGO Y VALOR (KELLY)
+1. Ingerir cuotas provistas por el usuario.
+2. Calcular EV por resultado: `EV_i = p_i * o_i - 1`.
+3. Si algún EV > 0, ejecutar `kelly_multi_outcome` para obtener stakes
+   óptimos sujetos a `MAX_KELLY_STAKE`.
+4. Si la posterior de `p` está disponible, ejecutar `kelly_robust_binary`
+   para ajustar por incertidumbre epistémica.
+5. Verificar fracción contra `optimal_fractional_kelly` con umbral de
+   P(ruina) ≤ 1%.
+6. Si todos los EV ≤ 0: **NO BET — EV NEGATIVO**.
 
 ---
 
-## 5. FORMATO DE RESPUESTA EXIGIDO
-Toda respuesta predictiva generada por esta skill DEBE adherirse a la siguiente estructura exacta (en Markdown):
+## 4. FORMATO DE RESPUESTA
 
 ```markdown
-# 📊 REPORTE DE PREDICCIÓN FUOL V3: [Local] vs [Visitante]
+# REPORTE DE PREDICCIÓN FUOL: [Local] vs [Visitante]
 
-## 1. PARÁMETROS BASE DEL MODELO (BASELINE)
-- **xG Proyectado Local**: [Valor numérico]
-- **xG Proyectado Visitante**: [Valor numérico]
-- **Probabilidades Puras (1X2)**: [1: X%] | [X: Y%] | [2: Z%]
+## 1. PARÁMETROS BASE
+- λ local: [valor]  |  μ visitante: [valor]
+- Probabilidades 1X2: 1=[X%]  X=[Y%]  2=[Z%]
+- ρ (Dixon-Coles): [valor]
+- half_life (LOO-CV): [días]
 
-## 2. ANÁLISIS DE CAPAS AVANZADAS
-*Sintetiza aquí los hallazgos de Hawkes, Markov y Topología.*
-- **Momentum y Excitación**: ...
-- **Choque Táctico y Transiciones**: ...
+## 2. TOP-5 MARCADORES EXACTOS
+1. [marcador] — [probabilidad]
+...
 
-## 3. MATRIZ DE RESULTADOS EXACTOS (TOP 3)
-1. [Marcador] - [Probabilidad %]
-2. [Marcador] - [Probabilidad %]
-3. [Marcador] - [Probabilidad %]
+## 3. VALIDACIÓN WALK-FORWARD
+- N eval: [n]
+- Brier: [valor]  |  Log-Loss: [valor]  |  RPS: [valor]
+- Hit rate: [%]  |  ECE: [valor]
 
-## 4. EVALUACIÓN DE RIESGO Y VALOR (KELLY ENGINE)
-- **Mercado Analizado**: [Ej. Match Odds / Over 2.5]
-- **Cuota de Referencia**: [Cuota]
-- **Valor Esperado (EV)**: [Cálculo matemático: EV > 0 o EV < 0]
-- **Veredicto del Orquestador**: [PLAY / NO PLAY]
-- **Stake Recomendado (Fracción de Kelly)**: [X% del Bankroll o 0%]
-
-## 5. ADVERTENCIAS ESTADÍSTICAS (SANITY CHECK)
-- *Reporte de posibles anomalías, varianza o falta de datos en el head-to-head.*
+## 4. RIESGO Y VALOR (KELLY)
+- Mercado: [1X2 | Over/Under | BTTS]
+- Cuotas: [o1, oX, o2]
+- EV por resultado: [ev1, evX, ev2]
+- Stake recomendado (Kelly multi): [s1, sX, s2]
+- Fracción de Kelly (P(ruina) ≤ 1%): [%]
+- Veredicto: [PLAY | NO PLAY]
 ```
 
 ---
 
-## 6. LEYES INMUTABLES DE LA INTELIGENCIA FUOL
-1. **El modelo es soberano**: Si el cálculo dicta un empate 0-0 de EV+, lo recomiendas, sin importar cuán "aburrido" parezca.
-2. **Cero Garantías**: Jamás utilices la palabra "seguro" o "garantizado". Hablas estrictamente en términos de "distribución de probabilidad" y "valor esperado".
-3. **Escalabilidad Omnisciente**: Siempre mantén en memoria que un partido es solo un nodo en el `tournament_simulator.py`. El objetivo es el rendimiento a largo plazo (Yield), no el hit rate a corto plazo.
+## 5. LEYES INMUTABLES
 
-**FIN DEL ARCHIVO DE SKILL. INICIACIÓN DEL ORQUESTADOR OMNI-FUOL... COMPLETADA.**
+1. **El modelo es soberano**: si el cálculo dicta EV+, se recomienda; si
+   dicta EV-, no se apuesta. Sin emociones.
+2. **Cero garantías**: jamás "seguro" o "garantizado". Hablar en términos
+   de distribución de probabilidad y valor esperado.
+3. **Walk-forward o nada**: una métrica sin validación walk-forward con
+   embargo temporal no es una métrica, es sobreajuste.
+4. **Robustez > optimismo**: cuando haya incertidumbre en `p`, usar
+   cuantil inferior, no la media plug-in.
+
+---
+
+## 6. MÓDULOS DECLARADOS PERO NO IMPLEMENTADOS
+
+Los siguientes nombres aparecen en versiones anteriores de la skill pero
+**NO existen en el repositorio**. Cualquier referencia a ellos debe
+tratarse como código por escribir, no como funcionalidad disponible:
+
+- `unified_engine_v3.py` / `UnifiedEngineV3`
+- `hawkes_goals_process.py` / `HawkesGoalsProcess`
+- `quantum_match_state.py`
+- `dirichlet_process_mixture.py`
+- `integrate_v3.py`
+- `calibrate_v3.py`
+
+Si se quiere extender el sistema con estos modelos, crear el módulo y
+agregar tests antes de referenciarlo desde la skill.
