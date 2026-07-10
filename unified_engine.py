@@ -18,9 +18,6 @@ from scipy import stats, optimize
 from typing import Optional
 import warnings
 
-from hawkes_goals_process import HawkesGoalsProcess, HawkesParameters
-from quantum_match_state import MatchOutcome, QuantumAmplitudes, QuantumMatchState
-from pass_network_topology import PassNetworkAnalyzer
 import math
 from feature_engine import EloRegistry
 from advanced_dixon_coles import AdvancedDixonColes
@@ -438,10 +435,16 @@ class UnifiedEngine:
             self.elo_b = 1600.0
         
         # Optimizar half_life por LOO-CV si no se especifica
-        if half_life is None and len(all_matches) >= 8:
-            hl_a = TimeWeighter.optimize_half_life(self.matches_a)
-            hl_b = TimeWeighter.optimize_half_life(self.matches_b)
-            self.half_life = (hl_a + hl_b) / 2.0
+        if half_life is None:
+            if len(all_matches) >= 8:
+                hl_a = TimeWeighter.optimize_half_life(self.matches_a)
+                hl_b = TimeWeighter.optimize_half_life(self.matches_b)
+                self.half_life = (hl_a + hl_b) / 2.0
+            else:
+                self.half_life = 365.0  # Fallback si no hay suficientes partidos
+        else:
+            self.half_life = half_life  # Usar el valor inyectado externamente
+            
         self.weighter = TimeWeighter(self.half_life)
         self.bayes = BayesianGoalRates(prior_strength=prior_strength)
         
@@ -470,16 +473,6 @@ class UnifiedEngine:
 
         lam_final = np.sqrt(lam * mu_def) if mu_def > 0 else lam
         mu_final = np.sqrt(mu * lam_def) if lam_def > 0 else mu
-
-        hawkes_home = HawkesGoalsProcess().fit([m.get('minute', 0.0) for m in self.matches_a if m.get('minute')])
-        hawkes_away = HawkesGoalsProcess().fit([m.get('minute', 0.0) for m in self.matches_b if m.get('minute')])
-        lam_hawkes = hawkes_home.expected_goals_90min
-        mu_hawkes = hawkes_away.expected_goals_90min
-
-        w_dc = min(1.0, len(self.matches_a) / 30.0)
-        w_hw = 1.0 - w_dc
-        lam_final = w_dc * lam_final + w_hw * lam_hawkes
-        mu_final = w_dc * mu_final + w_hw * mu_hawkes
 
         # 3. Probabilidades del partido (matriz completa)
         matrix = AdvancedDixonColes.score_matrix(lam_final, mu_final, self.rho)
@@ -523,15 +516,11 @@ class UnifiedEngine:
             'mu_std': round(mu_std, 3),
             'ci_lam_90': (round(ci_lam[0], 3), round(ci_lam[1], 3)),
             'ci_mu_90': (round(ci_mu[0], 3), round(ci_mu[1], 3)),
-            'elo_a': round(self.elo_a.rating, 1),
-            'elo_b': round(self.elo_b.rating, 1),
+            'elo_a': round(self.elo_a, 1) if isinstance(self.elo_a, float) else round(getattr(self.elo_a, 'rating', self.elo_a), 1),
+            'elo_b': round(self.elo_b, 1) if isinstance(self.elo_b, float) else round(getattr(self.elo_b, 'rating', self.elo_b), 1),
             'rho': round(self.rho, 4),
             'half_life_days': round(self.half_life, 1),
             'score_matrix': matrix,
-            'quantum_coherence': round(q_state.state.coherence_measure(), 4),
-            'hawkes_home': round(lam_hawkes, 3),
-            'hawkes_away': round(mu_hawkes, 3),
-            'network_features': network_features,
         }
 
 
