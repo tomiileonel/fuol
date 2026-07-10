@@ -406,6 +406,7 @@ class UnifiedEngine:
         base_elo_a: Optional[float] = None,
         base_elo_b: Optional[float] = None,
         calibrator: Optional[ProbabilityCalibrator] = None,
+        lambda_scale: float = 0.23,
     ):
         self.team_a = team_a
         self.team_b = team_b
@@ -418,6 +419,7 @@ class UnifiedEngine:
         self.modifiers_a = modifiers_a or {}
         self.modifiers_b = modifiers_b or {}
         self.calibrator = calibrator
+        self.lambda_scale = lambda_scale
         
         # Inicializar subcomponentes
         all_matches = self.matches_a + self.matches_b
@@ -455,7 +457,7 @@ class UnifiedEngine:
         Genera predicción completa con extensiones opcionales Hawkes/cuánticas/topológicas.
         """
         # 1. Priors Bayesianos basados en Elo
-        registry = EloRegistry()
+        registry = EloRegistry(lambda_scale=self.lambda_scale)
         elo_ratio_a = registry.expected_goal_ratio(self.elo_a, self.elo_b, self.venue)
         elo_ratio_b = registry.expected_goal_ratio(self.elo_b, self.elo_a, 'A' if self.venue == 'H' else ('H' if self.venue == 'A' else 'N'))
 

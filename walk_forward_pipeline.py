@@ -15,11 +15,17 @@ class WalkForwardPipeline:
                  train_window_days: int = 365 * 4,  # 4 years training
                  test_window_days: int = 30,        # 1 month testing
                  embargo_days: int = 14,            # 14 days gap to clear EWMA memory
-                 min_train_size: int = 100):
+                 min_train_size: int = 100,
+                 half_life: float = 365.0,
+                 prior_strength: float = 5.0,
+                 lambda_scale: float = 500.0):
         self.train_window = timedelta(days=train_window_days)
         self.test_window = timedelta(days=test_window_days)
         self.embargo = timedelta(days=embargo_days)
         self.min_train_size = min_train_size
+        self.half_life = half_life
+        self.prior_strength = prior_strength
+        self.lambda_scale = lambda_scale
 
     def generate_folds(self, df: pd.DataFrame) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
         """
@@ -114,7 +120,10 @@ class WalkForwardPipeline:
                 a_hist = pipeline.get_team_history(train_df, a)
                 
                 # Base model (no calibrator yet)
-                engine = UnifiedEngine(h, a, h_hist, a_hist, optimize_rho=False)
+                engine = UnifiedEngine(h, a, h_hist, a_hist, optimize_rho=False, 
+                                       half_life=self.half_life, 
+                                       prior_strength=self.prior_strength, 
+                                       lambda_scale=self.lambda_scale)
                 try:
                     pred = engine.predict()
                     train_preds.append([pred.get('p1', 0.33), pred.get('px', 0.33), pred.get('p2', 0.33)])
@@ -145,7 +154,10 @@ class WalkForwardPipeline:
                 h_hist = pipeline.get_team_history(train_df, h)
                 a_hist = pipeline.get_team_history(train_df, a)
                 
-                engine = UnifiedEngine(h, a, h_hist, a_hist, calibrator=calibrator, optimize_rho=False)
+                engine = UnifiedEngine(h, a, h_hist, a_hist, calibrator=calibrator, optimize_rho=False,
+                                       half_life=self.half_life, 
+                                       prior_strength=self.prior_strength, 
+                                       lambda_scale=self.lambda_scale)
                 try:
                     pred = engine.predict()
                     test_preds.append([pred.get('p1', 0.33), pred.get('px', 0.33), pred.get('p2', 0.33)])

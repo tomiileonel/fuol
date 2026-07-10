@@ -14,9 +14,10 @@ class EloRegistry:
     Global registry for tracking dynamic Elo ratings for all teams.
     Incorporates Margin of Victory (MoV) multiplier.
     """
-    def __init__(self, initial_elo: float = 1600.0):
+    def __init__(self, initial_elo: float = 1600.0, lambda_scale: float = 0.23):
         self.ratings: dict[str, float] = {}
         self.default_elo = initial_elo
+        self.lambda_scale = lambda_scale
 
     def get_elo(self, team: str) -> float:
         return self.ratings.get(team, self.default_elo)
@@ -31,7 +32,7 @@ class EloRegistry:
         """Converts Elo advantage into expected goal ratio."""
         E = self.expected_score(rating_a, rating_b, venue)
         E_clipped = np.clip(E, 0.05, 0.95)
-        log_ratio = np.log(E_clipped / (1.0 - E_clipped)) * config.LAMBDA_SCALE if hasattr(config, 'LAMBDA_SCALE') else np.log(E_clipped / (1.0 - E_clipped)) * 0.23
+        log_ratio = np.log(E_clipped / (1.0 - E_clipped)) * self.lambda_scale
         return np.exp(log_ratio)
 
     def get_k_factor(self, competition: str) -> float:
