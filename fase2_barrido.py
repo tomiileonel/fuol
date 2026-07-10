@@ -1,104 +1,85 @@
 """
-FASE 2 DEL PROTOCOLO — Barrido de half_life.
- 
-Corre el mismo walk-forward backtest de la Fase 1, pero repitiéndolo
-con distintos valores de half_life, y deja que fit_rho optimice rho
-automáticamente en cada corrida (no hace falta elegir rho a mano).
- 
-Requiere: haber corrido fase1_baseline.py primero, y tener
-baseline_resultado.json en la misma carpeta para comparar.
- 
-IMPORTANTE sobre qué significa "mejor" acá: el candidato con menor
-RPS agregado en ESTE barrido es el mejor DE ESTA MUESTRA, no
-necesariamente el mejor de verdad. Con pocos partidos, dos valores
-de half_life pueden dar RPS muy parecidos por pura casualidad de
-muestra. La Fase 3 (abajo) es la que decide si la diferencia
-observada acá es lo bastante grande como para confiar en ella.
+FASE 2 DEL PROTOCOLO — Optimización Bayesiana (Optuna)
+
+Migrado de Grid Search a Optuna para optimizar hiperparámetros
+(half_life, prior_strength) minimizando el RPS mediante el pipeline
+Walk-Forward riguroso.
 """
 import json
-from pathlib import Path
+import optuna
+import numpy as np
 from datetime import datetime
- 
-# Reusa la misma función de carga que la Fase 1.
-# Si ya la tenés en un módulo compartido, importala de ahí en vez
-# de copiarla — la dejo acá inline para que este script sea autocontenido.
-from fase1_baseline import cargar_historial
- 
- 
+from pathlib import Path
+from data_pipeline import DataPipeline
+from walk_forward_pipeline import WalkForwardPipeline
+import config
+
+def objective(trial):
+    # Definir espacio de búsqueda
+    half_life = trial.suggest_float("half_life", 90.0, 730.0, log=True)
+    prior_strength = trial.suggest_float("prior_strength", 2.0, 20.0, log=True)
+    lambda_scale = trial.suggest_float("lambda_scale", 300.0, 800.0)
+
+    # Temporary override of config for this trial
+    # In a real setup, we'd pass these directly to the engines/pipelines
+    # but for simplicity, if UnifiedEngine reads config, we can patch it,
+    # or better, modify the Pipeline/Engine to accept them.
+    # Since we can't easily patch the global config for parallel trials,
+    # we'll assume sequential execution and patch config.
+    config.HALF_LIFE = half_life
+    config.PRIOR_STRENGTH = prior_strength
+    config.LAMBDA_SCALE = lambda_scale
+
+    # Instanciar el pipeline con Purge & Embargo
+    # Usamos test_window_days=30, embargo_days=14
+    tester = WalkForwardPipeline(train_window_days=365*3, test_window_days=30, embargo_days=14)
+    pipeline = DataPipeline()
+    
+    # Nota: skip_fisher_info=True se implementaría a nivel de AdvancedDixonColes 
+    # para evitar el cálculo O(N^2) del Hessiano durante Optuna. 
+    # Aquí asumimos que AdvancedDixonColes lo omite o que usamos optimize_rho=False 
+    # en UnifiedEngine para acelerar.
+    
+    try:
+        results = tester.run(pipeline)
+        if not results:
+            raise optuna.TrialPruned()
+            
+        rps = results.get('avg_rps', np.inf)
+        if np.isnan(rps) or np.isinf(rps):
+            raise optuna.TrialPruned()
+            
+        return rps
+        
+    except Exception as e:
+        print(f"Error en trial: {e}")
+        raise optuna.TrialPruned()
+
 def main():
-    csv_path = "results.csv"
-    team_a = "ARGENTINA"
-    team_b = "FRANCE"
-    venue = "N"
- 
-    if not Path("baseline_resultado.json").exists():
-        print("❌ No encontré baseline_resultado.json.")
-        print("   Corré primero fase1_baseline.py — sin ese número de referencia,")
-        print("   no hay con qué comparar los resultados de este barrido.")
-        return
- 
-    with open("baseline_resultado.json", encoding="utf-8") as f:
-        baseline = json.load(f)
- 
-    matches_a = cargar_historial(csv_path, team_a)
-    matches_b = cargar_historial(csv_path, team_b)
- 
-    from unified_engine import WalkForwardBacktester
- 
-    # Candidatos de half_life, en días. 180 = medio año, 365 = un año
-    # (el default), 730 = dos años. Rango razonable para fútbol de
-    # selecciones, donde los ciclos relevantes son mundial (4 años) y
-    # forma reciente (últimos 12-18 meses aprox).
-    candidatos_half_life = [90, 180, 270, 365, 540, 730]
- 
-    resultados = []
-    for hl in candidatos_half_life:
-        backtester = WalkForwardBacktester(min_train_size=10)
-        resultado = backtester.run_walkforward(
-            team_a=team_a,
-            team_b=team_b,
-            all_matches_a=matches_a,
-            all_matches_b=matches_b,
-            venue=venue,
-            half_life=hl,
-            optimize_rho=True,  # deja que fit_rho ajuste rho por MLE en cada corrida
-        )
-        rps_agregado = resultado.get("rps_mean") or resultado.get("rps")
-        resultados.append({
-            "half_life": hl,
-            "rps": rps_agregado,
-            "rho_ajustado": resultado.get("rho"),
-            "resultado_completo": resultado,
-        })
-        print(f"half_life={hl:>4} días -> RPS={rps_agregado} (rho ajustado: {resultado.get('rho')})")
- 
-    resultados.sort(key=lambda r: r["rps"])
- 
+    print("Iniciando Optimización Bayesiana con Optuna...")
+    study = optuna.create_study(direction="minimize", study_name="fuol_hyperparams")
+    
+    # Optimizar con un máximo de 50 trials (ajustar en producción)
+    study.optimize(objective, n_trials=10, timeout=3600)
+    
     print("\n=== RANKING (menor RPS primero = mejor) ===")
-    for r in resultados:
-        marca = " <- mejor de este barrido" if r == resultados[0] else ""
-        print(f"  half_life={r['half_life']:>4}  RPS={r['rps']:.4f}{marca}")
- 
-    baseline_rps = baseline["resultado"].get("rps_mean") or baseline["resultado"].get("rps")
-    mejor = resultados[0]
-    diferencia = baseline_rps - mejor["rps"]
- 
-    print(f"\nBaseline (half_life default): RPS={baseline_rps:.4f}")
-    print(f"Mejor candidato de este barrido: half_life={mejor['half_life']}, RPS={mejor['rps']:.4f}")
-    print(f"Diferencia: {diferencia:.4f} ({'mejora' if diferencia > 0 else 'empeora'})")
- 
+    print("Mejores Parámetros:")
+    for key, value in study.best_params.items():
+        print(f"  {key}: {value}")
+    print(f"Mejor RPS: {study.best_value}")
+    
+    # Guardar resultados
+    resultados = {
+        "best_rps": study.best_value,
+        "best_params": study.best_params,
+        "timestamp": datetime.now().isoformat(),
+        "trials": len(study.trials)
+    }
+    
     with open("fase2_barrido_resultado.json", "w", encoding="utf-8") as f:
-        json.dump({
-            "baseline_rps": baseline_rps,
-            "candidatos": resultados,
-            "mejor_candidato": mejor,
-            "timestamp": datetime.now().isoformat(),
-        }, f, indent=2, ensure_ascii=False)
- 
+        json.dump(resultados, f, indent=2, ensure_ascii=False)
+        
     print("\n✅ Guardado en fase2_barrido_resultado.json")
-    print("   Este resultado NO es todavía la decisión final — ver Fase 3 antes")
-    print("   de adoptar el candidato ganador en producción.")
- 
- 
+
 if __name__ == "__main__":
     main()
