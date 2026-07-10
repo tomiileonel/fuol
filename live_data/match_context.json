@@ -1,0 +1,42 @@
+{
+  "fixture_info": {
+    "fifa_rank_home": 1, "fifa_rank_away": 15,
+    "venue": "Estadio Monumental", "time_local": "21:00",
+    "weather": {"condition": "Heavy Rain", "wind_kmh": 35, "temp_c": 10},
+    "referees": {"central": "Szymon Marciniak", "var": "Bastian Dankert"}
+  },
+  "squads": {
+    "home": {
+      "total_value_eur": 750000000,
+      "lineup_confirmed": true,
+      "starting_xi": ["Emi Martinez", "Molina", "C Romero", "Otamendi", "Tagliafico", "De Paul", "Enzo", "Mac Allister", "Messi", "Lautaro", "Alvarez"]
+    },
+    "away": {
+      "total_value_eur": 450000000,
+      "lineup_confirmed": true,
+      "starting_xi": ["Nyland", "Ryerson", "Ostigard", "Ajer", "Meling", "Odegaard", "Berg", "Aursnes", "Bobb", "Haaland", "Sorloth"]
+    }
+  },
+  "form": {
+    "home": {"last_100": {"W": 70, "D": 15, "L": 15}, "tournaments": {"WC": "Champion", "Qualifiers": "1st"}},
+    "away": {"last_100": {"W": 50, "D": 20, "L": 30}, "tournaments": {"Qualifiers": "3rd"}}
+  },
+  "advanced_metrics": {
+    "home": {
+      "elo": 2169.1,
+      "epv_per_possession": 0.12, 
+      "xt_dribbles": 2.4,
+      "pass_centrality_node": "Enzo Fernandez", 
+      "centrality_dependency": 0.45,
+      "attack_asymmetry_band": "Right"
+    },
+    "away": {
+      "elo": 2047.0,
+      "epv_per_possession": 0.08, 
+      "xt_dribbles": 1.2,
+      "pass_centrality_node": "Martin Odegaard", 
+      "centrality_dependency": 0.60,
+      "attack_asymmetry_band": "Center"
+    }
+  }
+}
