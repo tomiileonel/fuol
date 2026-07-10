@@ -87,7 +87,8 @@ class LiveOrchestrator:
                 
                 if any(pd.isna(o) or o <= 1.0 for o in odds):
                     continue
-
+                    
+                # 4. Cálculo de EV y Ejecución
                 best_idx = -1
                 max_ev = 0.0
                 for i in range(3):
@@ -97,7 +98,7 @@ class LiveOrchestrator:
                         best_idx = i
                 
                 if best_idx != -1 and max_ev > 0:
-                    logger.info(f"[ALPHA DETECTADO] {match['home_team']} vs {match['away_team']} -> Bet {selections[best_idx]} (EV: {max_ev:.2%})")
+                    logger.info(f"[ALPHA DETECTADO] {h} vs {a} -> Bet {selections[best_idx]} (EV: {max_ev:.2%})")
                     res = await self.trader.place_bet(
                         match_id=match_id,
                         selection=selections[best_idx],
@@ -109,18 +110,16 @@ class LiveOrchestrator:
                     else:
                         logger.warning(f"Trade rechazado: {res.get('reason')}")
                 else:
-                    logger.info(f"No Edge positivo para {match_id}. No se apuesta.")
-
+                    logger.info(f"No Edge positivo para {h} vs {a}. No se apuesta.")
             except Exception as e:
-                logger.error(f"Error inferencia {match_id}: {e}")
+                logger.error(f"Error en inferencia {match_id}: {e}")
 
     async def _process_results(self):
         """Escanea results.csv y liquida las apuestas pendientes."""
         df = self._load_and_clean_csv(self.results_path)
         if df.empty:
             return
-
-        # Asumimos columnas: date, home_team, away_team, home_score, away_score
+            
         if 'home_score' not in df.columns or 'away_score' not in df.columns:
             return
             
@@ -135,31 +134,30 @@ class LiveOrchestrator:
             else:
                 selection_won = '2'
                 
-            # Ejecutar settlement atómico
+            # Settlement ACID
             result = await self.trader.settle_bet(match_id, selection_won)
             if result.get('success', False):
-                logger.info(f"Settlement completado para {match_id}. Trades liquidados: {result.get('settled_count', 0)}")
+                logger.info(f"Settlement OK para {match_id}. Trades liquidados: {result.get('settled_count', 0)}")
             else:
-                logger.debug(f"Error liquidando {match_id}: {result.get('error')}")
-
-        # Mover results.csv a procesados para no re-procesar
+                logger.debug(f"Nada que liquidar o error en {match_id}: {result.get('error')}")
+        
+        # Mover results.csv a procesados
         try:
             new_path = os.path.join(self.processed_path, f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
             os.rename(self.results_path, new_path)
-        except Exception as e:
-            pass # Si falla el rename, no es crítico, el loop de DB previene doble liquidación.
+        except Exception:
+            pass
 
     async def run(self):
         """Bucle principal asíncrono infinito."""
-        logger.info("Iniciando bucle de monitoreo...")
+        logger.info("Iniciando bucle de monitoreo (Fondos 0)...")
         while True:
             try:
                 await self._process_fixtures()
                 await self._process_results()
             except Exception as e:
-                logger.critical(f"Error fatal en el bucle principal: {e}")
+                logger.critical(f"Error fatal en bucle principal: {e}")
             
-            # Dormir 60 segundos entre ciclos para no consumir CPU
             await asyncio.sleep(60)
 
 if __name__ == "__main__":
