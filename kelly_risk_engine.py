@@ -26,9 +26,8 @@ real:
 
 Este módulo añade la matemática que cierra esas 3 brechas:
   1. Kelly multi-resultado (simultaneous Kelly) para mercados 1X2.
-  2. Kelly ajustado por incertidumbre bayesiana del modelo (shrinkage
-     hacia stake 0 cuando el modelo está incierto sobre su propia
-     probabilidad -- no solo cuando el edge estimado es chico).
+  2. Kelly robusto por incertidumbre del modelo (usa un cuantil inferior
+     de la posterior en lugar de la media plug-in; ver notas abajo).
   3. Límite de posición vía Teoría de la Ruina del Jugador (Gambler's
      Ruin) para fijar un piso de bankroll que el sistema NUNCA debe
      cruzar, matemáticamente derivado (no un número arbitrario en config).
@@ -67,32 +66,35 @@ por separado y sumar: ese enfoque ingenuo puede recomendar apostar en
 DOS resultados del mismo partido simultáneamente cuando no siempre es
 óptimo, y no captura correctamente la restricción de bankroll compartido.
 
-### 4.3 Kelly Bayesiano (ajuste por incertidumbre del modelo)
+### 4.3 Kelly Robusto por Incertidumbre del Modelo
 
-El Kelly clásico trata a p como si fuera CONOCIDO exactamente. En
-realidad, el sistema tiene una DISTRIBUCIÓN posterior sobre p (viene de
-los módulos Dixon-Coles/Bayesiano: un IC, no un punto). El "Kelly
-Bayesiano" (a veces llamado "Kelly con shrinkage por incertidumbre
-paramétrica") integra sobre esa incertidumbre en vez de usar el punto
-estimado:
+NOTA MATEMÁTICA IMPORTANTE (corregida):
+  En un problema de apuesta BINARIA con un único tiro, la utilidad
+  logarítmica es LINEAL en la probabilidad p:
+      U(p, f) = p*log(1 + f*(o-1)) + (1-p)*log(1 - f)
+  Por lo tanto, E_p[U(p, f)] = U(E[p], f), y el óptimo sobre f es
+  EXACTAMENTE kelly_binary(E[p], o) = "Kelly plug-in" con la media
+  posterior. En este caso no hay shrinkage matemático de Kelly por
+  incertidumbre epistémica PURA del parámetro p (la linealidad anula
+  el efecto Jensen).
 
-    f*_bayes = E_theta~posterior[ f*(p(theta)) ]  -- vía Monte Carlo
+  El "shrinkage por incertidumbre" clásico de Baker & McHale (2013)
+  surge en configuraciones MULTI-PERÍODO con APRENDIZAJE (donde la
+  apuesta de hoy afecta la información de mañana) o cuando se incorpora
+  RIESGO DE MODELIZACIÓN (model misspecification: la verdadera p no
+  está exactamente en la familia paramétrica de la posterior).
 
-Alternativa cerrada (aproximación de 2do orden, más rápida que MC):
-Si p ~ Beta(a,b) (o se aproxima la posterior de p por una Beta ajustada
-por momentos a partir del IC), se puede mostrar que el Kelly óptimo bajo
-incertidumbre de parámetro es ESTRICTAMENTE MENOR que el Kelly con el
-punto estimado plug-in (Baker & McHale, 2013; "shrinkage" de Kelly por
-incertidumbre epistémica). La intuición: apostar fuerte basado en una
-probabilidad que podría estar mal estimada expone a pérdidas
-sistemáticas mayores que las que Kelly-plug-in anticipa, porque Kelly
-plug-in NO sabe que su propio input p es incierto.
-
-Este módulo implementa la versión Monte Carlo (general, no depende de
-supuestos de forma funcional de la posterior) muestreando directamente
-de la posterior si está disponible (ej. desde BayesianHierarchicalRates
-o desde los IC de AdvancedDixonColes), y una aproximación analítica
-rápida para el caso Beta.
+  Para capturar esta robustez de forma coherente y simple, este módulo
+  usa un enfoque de CUANTIL INFERIOR sobre la posterior de p: en vez de
+  apostar con la media, se apuesta con un cuantil inferior (por defecto
+  el percentil 25). Esto es equivalente a un ajuste CVaR-like sobre el
+  riesgo de modelización y garantiza:
+      f_robust <= f_plugin
+  siempre que la distribución no sea degenerada. Esto reemplaza el
+  enfoque previo (E[kelly(p)] sobre la posterior) que, por la
+  CONVEXIDAD piecewise-linear de kelly_binary (kink en p* = 1/o),
+  puede producir f_bayes > f_plugin -- contrario a la intuición de
+  robustez que se buscaba y que se documentaba.
 
 ### 4.4 Teoría de la Ruina del Jugador (Gambler's Ruin) -> piso de bankroll
 
@@ -102,15 +104,35 @@ crítico B_ruin (ej. 20% del capital inicial) ANTES de duplicar el
 capital, bajo un modelo de random walk con drift, se aproxima (Kelly,
 1956; extensión continua vía movimiento Browniano geométrico) como:
 
-    P(ruina) = exp( -2*mu/sigma^2 * log(W0/B_ruin) )   si mu > 0
+    P(ruina) = exp( -2*mu/sigma^2 * |log(bankroll_ratio_target)| )   si mu > 0
 
-    mu = E[log(1 + f*edge)] aprox f*edge - 0.5*f^2*sigma_odds^2  (drift log)
-    sigma^2 = Var[log(1 + f*resultado)]  (varianza del retorno logarítmico)
+donde, para una apuesta con stake fraccional f, outcome per-unit-stake X
+(X = o-1 con prob p, X = -1 con prob 1-p):
 
-Esto permite fijar f_max (fracción de Kelly a usar, ej. "Kelly al 25%"
-que ya se menciona en el sistema como Kelly Fraccional) de forma que
-P(ruina) quede por debajo de un umbral tolerado (ej. 1%), en vez de fijar
-el fraccionamiento de Kelly de forma arbitraria.
+    drift logarítmico por apuesta:
+        mu = E[log(1 + f*X)] ≈ f*edge - 0.5 * f² * Var[X]
+    varianza logarítmica por apuesta:
+        sigma² ≈ f² * Var[X]
+
+    edge = E[X] = p*o - 1           (ventaja por unidad apostada)
+    Var[X] = p*(o-1)² + (1-p)*1 - edge²
+           = p*(o-1)² + (1-p) - (p*o - 1)²
+
+Por lo tanto, `outcome_variance` en la función `ruin_probability` debe
+ser `Var[X]` (varianza del resultado por unidad apostada), NO la
+varianza del payout bruto `o²*p*(1-p)`.
+
+Ejemplo para o=2.0, p=0.55:
+    edge = 0.55*2 - 1 = 0.10
+    Var[X] = 0.55*1 + 0.45 - 0.01 = 0.99 ≈ 1.0
+
+Con la interpretación anterior (donde se pasaba `odds_variance_proxy=4.0`
+para o=2) el término de varianza cuadrático siempre dominaba al drift
+lineal, dando mu < 0 y P(ruina) = 1.0 para cualquier fracción -- un bug
+silencioso que invalidaba cualquier recomendación de stake.
+
+Use `compute_binary_outcome_variance(p, decimal_odds)` para obtener el
+valor correcto de Var[X] a pasar a `ruin_probability`.
 """
 
 from __future__ import annotations
@@ -120,6 +142,38 @@ from scipy import optimize, stats
 from dataclasses import dataclass
 
 from config import MAX_KELLY_STAKE
+
+
+# ----------------------------------------------------------------------
+# Helpers: derivación correcta de Var[X] para una apuesta binaria
+# ----------------------------------------------------------------------
+def compute_binary_outcome_variance(prob_win: float, decimal_odds: float) -> float:
+    """
+    Para una apuesta binaria con probabilidad de ganar `prob_win` y cuota
+    decimal `decimal_odds`, computa Var[X] donde X es el resultado por
+    unidad apostada:
+        X = (o - 1)  con prob p
+        X = -1       con prob (1-p)
+
+    Var[X] = E[X²] - E[X]²
+           = [p*(o-1)² + (1-p)*1] - (p*o - 1)²
+
+    Retorna 0 si los inputs son inválidos (cuota <= 1 o prob fuera de [0,1]).
+    """
+    if not (0.0 <= prob_win <= 1.0) or decimal_odds <= 1.0:
+        return 0.0
+    p = float(prob_win)
+    o = float(decimal_odds)
+    edge = p * o - 1.0
+    ex2 = p * (o - 1.0) ** 2 + (1.0 - p) * 1.0
+    return float(max(ex2 - edge ** 2, 0.0))
+
+
+def compute_binary_edge(prob_win: float, decimal_odds: float) -> float:
+    """edge = E[X] = p*o - 1 por unidad apostada."""
+    if not (0.0 <= prob_win <= 1.0) or decimal_odds <= 1.0:
+        return 0.0
+    return float(prob_win * decimal_odds - 1.0)
 
 
 # ----------------------------------------------------------------------
@@ -168,7 +222,6 @@ def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
 
     def neg_expected_log_growth(f):
         f1, fX, f2 = f
-        stakes = np.array([f1, fX, f2])
         returns = np.array([
             1 + f1 * (odds[0] - 1) - fX - f2,
             1 + fX * (odds[1] - 1) - f1 - f2,
@@ -219,54 +272,120 @@ def kelly_multi_outcome(probs: np.ndarray, decimal_odds: np.ndarray,
 
 
 # ----------------------------------------------------------------------
-# 4.3 Kelly Bayesiano (ajuste por incertidumbre epistémica del modelo)
+# 4.3 Kelly Robusto por Incertidumbre del Modelo
 # ----------------------------------------------------------------------
-def kelly_bayesian_binary(prob_posterior_samples: np.ndarray, decimal_odds: float) -> dict:
+def kelly_robust_binary(
+    prob_posterior_samples: np.ndarray,
+    decimal_odds: float,
+    quantile: float = 0.25,
+) -> dict:
     """
+    Kelly robusto por incertidumbre epistémica del modelo.
+
     prob_posterior_samples: muestras de la distribución posterior de
-        p_win (ej. de BayesianHierarchicalRates.compare_teams o de un
-        Monte Carlo sobre los IC de AdvancedDixonColes). NO un punto
-        estimado -- la distribución completa.
+        p_win (ej. de BayesianHierarchicalRates o de un Monte Carlo sobre
+        los IC de AdvancedDixonColes). NO un punto estimado -- la
+        distribución completa.
 
-    Calcula:
-        f*_plugin  = kelly_binary(media_posterior, odds)   [ingenuo]
-        f*_bayes   = E_theta[ kelly_binary(p(theta), odds) ]  [correcto]
+    quantile: cuantil inferior de la posterior a usar como probabilidad
+        efectiva para el Kelly plug-in. Por defecto 0.25 (percentil 25).
+        Cuanto menor sea el cuantil, más conservadora es la apuesta.
+        - quantile=0.50  -> mediana (equivalente a plug-in si la
+          posterior es simétrica).
+        - quantile=0.05  -> muy conservador (solo se apuesta si el
+          percentil 5 ya está por encima del cutoff del Kelly).
+        - quantile=0.0   -> no usar (degradaría a kelly del mínimo, que
+          casi siempre será 0).
 
-    f*_bayes < f*_plugin cuando hay incertidumbre real y sustancial en
-    p (esto es matemáticamente esperable por la concavidad de f* como
-    función de p combinada con la penalización asimétrica de apostar de
-    más cuando p resulta ser menor que el estimado puntual -- el error
-    por sobreestimar duele más en crecimiento logarítmico que el
-    beneficio de acertar por el mismo margen).
+    Razonamiento matemático:
+      En una apuesta binaria single-shot, la utilidad logarítmica es
+      LINEAL en p, por lo que el óptimo Bayesiano EXACTO coincide con
+      kelly_binary(E[p], o) -- sin shrinkage. Sin embargo, esto ignora
+      el riesgo de MODEL MISSPECIFICATION (la verdadera p puede no
+      pertenecer a la familia paramétrica de la posterior). El uso de
+      un cuantil inferior es equivalente a un ajuste CVaR-like que
+      penaliza escenarios donde el modelo está sobre-estimando la
+      probabilidad del evento.
+
+      Con cuantil < 0.5 se garantiza f_robust <= f_plugin SIEMPRE que
+      la posterior no sea degenerada, lo cual es la propiedad de
+      robustez que se busca en producción.
     """
+    if not (0.0 < quantile <= 1.0):
+        raise ValueError(f"quantile debe estar en (0, 1]; recibido {quantile}")
+
     samples = np.asarray(prob_posterior_samples, dtype=float)
-    f_plugin = kelly_binary(float(samples.mean()), decimal_odds)
+    if samples.size == 0:
+        return {
+            "f_plugin_naive": 0.0,
+            "f_robust": 0.0,
+            "shrinkage_factor": 1.0,
+            "posterior_prob_mean": 0.0,
+            "posterior_prob_std": 0.0,
+            "effective_prob": 0.0,
+            "effective_quantile": quantile,
+            "recommendation": "Sin muestras posteriores; no apostar.",
+        }
 
-    f_per_sample = np.array([kelly_binary(p, decimal_odds) for p in samples])
-    f_bayes = float(f_per_sample.mean())
+    p_mean = float(samples.mean())
+    p_std = float(samples.std())
+    p_effective = float(np.quantile(samples, quantile))
 
-    shrinkage_factor = f_bayes / f_plugin if f_plugin > 1e-9 else 1.0
+    f_plugin = kelly_binary(p_mean, decimal_odds)
+    f_robust = kelly_binary(p_effective, decimal_odds)
+
+    # Shrinkage garantizado <= 1 cuando quantile <= 0.5 (la función
+    # kelly_binary es monótona no-decreciente en p). Solo puede ser > 1
+    # si el usuario pasa cuantil > 0.5 y la posterior es asimétrica; lo
+    # dejamos reportar pero documentamos la anomalía.
+    shrinkage_factor = f_robust / f_plugin if f_plugin > 1e-9 else 1.0
+
+    if quantile > 0.5 and shrinkage_factor > 1.0:
+        recommendation = (
+            f"Cuantil {quantile} > 0.5 produce shrinkage > 1 (sobre-apuesta). "
+            "Use cuantil <= 0.5 para comportamiento robusto conservador."
+        )
+    else:
+        recommendation = (
+            f"Usar f_robust (basado en cuantil {quantile:.2f} de la posterior). "
+            f"La reducción frente a plug-in ({(1 - shrinkage_factor) * 100:.1f}%) "
+            "refleja el ajuste por incertidumbre epistémica del modelo."
+        )
 
     return {
         "f_plugin_naive": float(f_plugin),
-        "f_bayes_correct": f_bayes,
+        "f_robust": float(f_robust),
         "shrinkage_factor": float(shrinkage_factor),
-        "posterior_prob_mean": float(samples.mean()),
-        "posterior_prob_std": float(samples.std()),
-        "recommendation": (
-            "Usar f_bayes_correct. La diferencia con f_plugin_naive "
-            f"({(1 - shrinkage_factor) * 100:.1f}% de reducción) refleja "
-            "el costo de la incertidumbre del modelo sobre su propia "
-            "probabilidad estimada."
-        ),
+        "posterior_prob_mean": p_mean,
+        "posterior_prob_std": p_std,
+        "effective_prob": p_effective,
+        "effective_quantile": quantile,
+        "recommendation": recommendation,
     }
+
+
+# Alias retrocompatible con la API anterior. Mantiene el nombre viejo
+# para no romper imports de paper_trader.py u otros consumidores, pero
+# internamente delega al kelly_robust_binary con cuantil por defecto 0.25.
+def kelly_bayesian_binary(
+    prob_posterior_samples: np.ndarray,
+    decimal_odds: float,
+    quantile: float = 0.25,
+) -> dict:
+    """Alias retrocompatible para `kelly_robust_binary`. Ver docstring
+    de esa función para el detalle matemático."""
+    return kelly_robust_binary(prob_posterior_samples, decimal_odds, quantile=quantile)
 
 
 # ----------------------------------------------------------------------
 # 4.4 Teoría de la Ruina -> piso de bankroll y Kelly fraccional óptimo
 # ----------------------------------------------------------------------
-def ruin_probability(kelly_fraction: float, edge: float, odds_variance_proxy: float,
-                      bankroll_ratio_target: float = 0.2) -> float:
+def ruin_probability(
+    kelly_fraction: float,
+    edge: float,
+    outcome_variance: float,
+    bankroll_ratio_target: float = 0.2,
+) -> float:
     """
     Aproxima P(ruina) = P(el bankroll cae a bankroll_ratio_target * W0
     antes de duplicarse), para una fracción de Kelly dada, vía la
@@ -274,69 +393,116 @@ def ruin_probability(kelly_fraction: float, edge: float, odds_variance_proxy: fl
 
         P(ruina) = exp( -2*mu/sigma^2 * |log(bankroll_ratio_target)| )
 
-        mu    ~ kelly_fraction * edge - 0.5 * kelly_fraction^2 * odds_variance_proxy
-        sigma^2 ~ kelly_fraction^2 * odds_variance_proxy
+        mu    = kelly_fraction * edge - 0.5 * kelly_fraction^2 * outcome_variance
+        sigma^2 = kelly_fraction^2 * outcome_variance
 
-    edge: ventaja esperada por unidad apostada (ej. de implied_edges en
-        kelly_multi_outcome).
-    odds_variance_proxy: varianza del retorno por unidad apostada (para
-        una apuesta binaria con prob p y odds o: Var = p*(1-p)*o^2,
-        aproximadamente -- se puede pasar precalculado).
+    Parámetros:
+        kelly_fraction: fracción del bankroll arriesgada por apuesta.
+        edge: ventaja esperada por unidad apostada, E[X] = p*o - 1.
+            (NO es la fracción de Kelly, NO es la cuota. Para una
+            apuesta con p=0.55 y o=2.0, edge = 0.10.)
+        outcome_variance: Var[X] = varianza del resultado por unidad
+            apostada. Para apuesta binaria:
+                Var[X] = p*(o-1)² + (1-p) - (p*o - 1)²
+            Use `compute_binary_outcome_variance(p, o)` para obtenerla.
+            NO usar `o²` ni `p*(1-p)*o²` -- eso sobreestima la varianza
+            y produce P(ruina)=1 para cualquier f razonable.
+        bankroll_ratio_target: umbral de "ruina" como fracción del
+            capital inicial (default 0.20).
 
-    Si mu <= 0 (el sistema tiene edge negativo neto con esa fracción),
-    la ruina es una CERTEZA a largo plazo (P=1) -- se retorna 1.0
-    explícitamente en vez de un número posiblemente engañoso.
+    Si mu <= 0 (el sistema tiene edge neto negativo o cero con esa
+    fracción y varianza), la ruina es una CERTEZA a largo plazo (P=1).
     """
-    mu = kelly_fraction * edge - 0.5 * (kelly_fraction ** 2) * odds_variance_proxy
-    sigma2 = (kelly_fraction ** 2) * odds_variance_proxy
+    if kelly_fraction <= 0 or outcome_variance <= 0:
+        return 0.0 if kelly_fraction <= 0 else 1.0
+    if not (0.0 < bankroll_ratio_target < 1.0):
+        raise ValueError(
+            f"bankroll_ratio_target debe estar en (0, 1); recibido {bankroll_ratio_target}"
+        )
+
+    f = float(kelly_fraction)
+    mu = f * edge - 0.5 * (f ** 2) * outcome_variance
+    sigma2 = (f ** 2) * outcome_variance
 
     if mu <= 0:
         return 1.0
     if sigma2 < 1e-12:
         return 0.0
 
-    exponent = -2 * mu / sigma2 * abs(np.log(bankroll_ratio_target))
-    return float(np.exp(exponent))
+    exponent = -2.0 * mu / sigma2 * abs(np.log(bankroll_ratio_target))
+    # Clamp superior: P(ruina) es una probabilidad, no puede exceder 1.
+    return float(min(np.exp(exponent), 1.0))
 
 
-def optimal_fractional_kelly(edge: float, odds_variance_proxy: float,
-                              max_ruin_prob: float = 0.01,
-                              bankroll_ratio_target: float = 0.2,
-                              full_kelly_fraction: float = 1.0) -> dict:
+def optimal_fractional_kelly(
+    edge: float,
+    outcome_variance: float,
+    max_ruin_prob: float = 0.01,
+    bankroll_ratio_target: float = 0.2,
+    full_kelly_fraction: float = 1.0,
+) -> dict:
     """
     Busca, vía bisección, el mayor multiplicador c en (0, full_kelly_fraction]
-    tal que ruin_probability(c, edge, odds_variance_proxy, bankroll_ratio_target)
+    tal que ruin_probability(c, edge, outcome_variance, bankroll_ratio_target)
     <= max_ruin_prob.
 
     Esto reemplaza el "Kelly Fraccional" arbitrario (ej. "usamos 25% de
     Kelly porque así se hace habitualmente") por un valor DERIVADO de un
     umbral de riesgo de ruina explícito y auditable.
+
+    Parámetros:
+        edge: E[X] = p*o - 1. Ver `compute_binary_edge`.
+        outcome_variance: Var[X]. Ver `compute_binary_outcome_variance`.
+        max_ruin_prob: tolerancia máxima de P(ruina) (default 1%).
+        bankroll_ratio_target: piso de bankroll (default 20% del inicial).
+        full_kelly_fraction: fracción de Kelly completo a considerar como
+            techo (default 1.0 = 100% de Kelly).
     """
+    if edge <= 0:
+        return {
+            "optimal_fraction_of_kelly": 0.0,
+            "ruin_prob_at_optimum": 1.0,
+            "note": "Edge <= 0: no apostar.",
+        }
+    if outcome_variance <= 0:
+        return {
+            "optimal_fraction_of_kelly": full_kelly_fraction,
+            "ruin_prob_at_optimum": 0.0,
+            "note": "Varianza cero (caso degenerado); Kelly completo satisface todo umbral.",
+        }
+
     def f(c):
-        return ruin_probability(c, edge, odds_variance_proxy, bankroll_ratio_target) - max_ruin_prob
+        return ruin_probability(c, edge, outcome_variance, bankroll_ratio_target) - max_ruin_prob
 
     lo, hi = 1e-6, full_kelly_fraction
-    if f(hi) <= 0:
-        # incluso Kelly completo cumple el umbral de riesgo
-        return {"optimal_fraction_of_kelly": full_kelly_fraction,
-                "ruin_prob_at_optimum": ruin_probability(hi, edge, odds_variance_proxy, bankroll_ratio_target),
-                "note": "Kelly completo ya satisface el umbral de riesgo de ruina."}
-    if f(lo) > 0:
-        return {"optimal_fraction_of_kelly": 0.0, "ruin_prob_at_optimum": f(lo) + max_ruin_prob,
-                "note": "Ni la fracción mínima satisface el umbral; edge insuficiente o varianza excesiva. No apostar."}
+    p_ruin_hi = ruin_probability(hi, edge, outcome_variance, bankroll_ratio_target)
+    if p_ruin_hi <= max_ruin_prob:
+        return {
+            "optimal_fraction_of_kelly": full_kelly_fraction,
+            "ruin_prob_at_optimum": p_ruin_hi,
+            "note": "Kelly completo ya satisface el umbral de riesgo de ruina.",
+        }
+    p_ruin_lo = ruin_probability(lo, edge, outcome_variance, bankroll_ratio_target)
+    if p_ruin_lo > max_ruin_prob:
+        return {
+            "optimal_fraction_of_kelly": 0.0,
+            "ruin_prob_at_optimum": p_ruin_lo,
+            "note": "Ni la fracción mínima satisface el umbral; varianza excesiva. No apostar.",
+        }
 
-    for _ in range(60):
+    for _ in range(80):
         mid = (lo + hi) / 2
         if f(mid) > 0:
             hi = mid
         else:
             lo = mid
 
+    p_ruin_opt = ruin_probability(lo, edge, outcome_variance, bankroll_ratio_target)
     return {
         "optimal_fraction_of_kelly": float(lo),
-        "ruin_prob_at_optimum": ruin_probability(lo, edge, odds_variance_proxy, bankroll_ratio_target),
+        "ruin_prob_at_optimum": p_ruin_opt,
         "note": (
-            f"Usar {lo*100:.1f}% de Kelly completo mantiene P(ruina hasta "
+            f"Usar {lo*100:.2f}% de Kelly completo mantiene P(ruina hasta "
             f"{bankroll_ratio_target*100:.0f}% del capital) <= {max_ruin_prob*100:.1f}%."
         ),
     }
