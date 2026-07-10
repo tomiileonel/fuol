@@ -10,27 +10,43 @@ class PaperTrader:
         self.ledger = self.db.paper_trading_ledger
         self.initial_bankroll = initial_bankroll
 
-    def calculate_fractional_kelly(self, market_prob, engine_prob, brier_score=0.15, fractional_scale=0.10):
+    def calculate_kelly_multi_outcome(self, model_probs: list[float], market_odds: list[float], brier_score=0.15, fractional_scale=0.10):
         """
-        Calcula el tamaño óptimo de la posición usando Criterio de Kelly (modulado por Brier).
-        Retorna la fracción del bankroll a apostar (0 a 1).
+        Calcula el tamaño óptimo de la posición para mercados mutuamente excluyentes (1X2).
+        Retorna las fracciones a apostar para [Home, Draw, Away].
         """
-        if market_prob <= 0 or engine_prob <= 0:
-            return 0.0
+        fractions = [0.0, 0.0, 0.0]
+        
+        # Encontrar la selección con mayor alpha/EV
+        best_idx = -1
+        max_ev = 0.0
+        
+        for i in range(3):
+            if market_odds[i] <= 0:
+                continue
+            implied = 1.0 / market_odds[i]
+            ev = (model_probs[i] * market_odds[i]) - 1.0
             
-        b = (1.0 / market_prob) - 1.0
-        p = engine_prob
-        q = 1.0 - p
+            if ev > max_ev:
+                max_ev = ev
+                best_idx = i
+                
+        if best_idx == -1:
+            return fractions # No edge found
+            
+        # Si apostamos solo a una selección (la mejor):
+        # f = EV / (Odds - 1)
+        # Esto es Kelly para apuestas independientes, pero al ser mutuamente excluyentes
+        # y si solo elegimos una, la fórmula converge a la misma.
+        b = market_odds[best_idx] - 1.0
+        p = model_probs[best_idx]
+        kelly_f = ((b * p) - (1 - p)) / b if b > 0 else 0.0
         
-        kelly_f = ((b * p) - q) / b if b > 0 else 0.0
-        
-        # Penalizamos la confianza si el Brier Score es alto (históricamente fallamos)
         confidence_multiplier = max(0.5, 1.0 - (brier_score * 2))
-        
-        # Fracción defensiva (Fractional Kelly)
         fractional_kelly = max(0.0, kelly_f * fractional_scale * confidence_multiplier)
         
-        return fractional_kelly
+        fractions[best_idx] = fractional_kelly
+        return fractions
 
     async def get_current_bankroll(self):
         """Calcula el bankroll disponible en O(1) desde el estado global."""
@@ -49,7 +65,9 @@ class PaperTrader:
         if alpha <= 0:
             return {"success": False, "reason": "Alpha Negativo o Cero", "alpha": alpha}
             
-        fraction = self.calculate_fractional_kelly(market_prob, engine_prob, brier_score)
+        # Backward compatibility with single-outcome API calls in tests
+        fractions = self.calculate_kelly_multi_outcome([engine_prob, 0, 0], [market_odds, 0, 0], brier_score)
+        fraction = fractions[0]
         if fraction <= 0:
             return {"success": False, "reason": "Kelly <= 0", "alpha": alpha}
             
@@ -87,6 +105,7 @@ class PaperTrader:
             "market_odds": market_odds,
             "kelly_fraction_used": fraction,
             "stake": stake,
+            "clv": None, # Para ser llenado post-partido por clv_tracker
             "status": "PENDING"
         }
         

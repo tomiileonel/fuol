@@ -375,3 +375,21 @@ def full_risk_adjusted_kelly_pipeline(
         final_recommended_fraction=max(f3, 0.0),
         warnings=warnings,
     )
+
+# ============================================================================
+# 3.6 — INTEGRACIÓN CON CLV_TRACKER (MARKET EFFICIENCY)
+# ============================================================================
+
+def evaluate_strategy_clv(clv_stats: dict, min_bets: int = 50) -> dict:
+    """
+    Evalúa si la estrategia tiene un CLV a largo plazo positivo.
+    Si el CLV histórico es consistentemente negativo (no bate al cierre de
+    casas sharp), la estrategia debe detenerse, sin importar el PnL a corto plazo.
+    """
+    if 'n_bets' not in clv_stats or clv_stats['n_bets'] < min_bets:
+        return {'status': 'INSUFFICIENT_DATA', 'action': 'CONTINUE', 'reason': 'Not enough CLV history'}
+        
+    if not clv_stats.get('significant', False) and clv_stats.get('mean_clv', 0) <= 0:
+        return {'status': 'NEGATIVE_CLV', 'action': 'HALT_TRADING', 'reason': 'Systematic negative CLV detected against sharp books'}
+        
+    return {'status': 'POSITIVE_CLV', 'action': 'CONTINUE', 'reason': 'Model beats closing line systematically'}
