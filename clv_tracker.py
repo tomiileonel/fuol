@@ -34,6 +34,39 @@ class CLVTracker:
             
         return implied_h / overround, implied_d / overround, implied_a / overround
 
+    def _get_best_sharp_probs(self, row) -> tuple[float, float, float, float, float, float]:
+        """
+        Extract the desvigged probabilities from multiple bookies, prioritizing the one with the lowest margin.
+        Also returns the original odds for EV calculation.
+        """
+        bookies = ['pin', 'asian', 'b365', 'avg']
+        best_probs = (0.0, 0.0, 0.0)
+        best_odds = (0.0, 0.0, 0.0)
+        lowest_margin = float('inf')
+        
+        for b in bookies:
+            odds_h = row.get(f'{b}_H', np.nan)
+            odds_d = row.get(f'{b}_D', np.nan)
+            odds_a = row.get(f'{b}_A', np.nan)
+            
+            if pd.isna(odds_h) or pd.isna(odds_d) or pd.isna(odds_a) or odds_h == 0 or odds_d == 0 or odds_a == 0:
+                continue
+                
+            implied_h = 1.0 / odds_h
+            implied_d = 1.0 / odds_d
+            implied_a = 1.0 / odds_a
+            margin = implied_h + implied_d + implied_a
+            
+            if 1.0 < margin < lowest_margin:
+                lowest_margin = margin
+                best_probs = (implied_h / margin, implied_d / margin, implied_a / margin)
+                best_odds = (odds_h, odds_d, odds_a)
+                # Si es Pinnacle (pin), le damos prioridad absoluta incluso si otra tuvo menor margen por error
+                if b == 'pin':
+                    break
+                    
+        return (*best_probs, *best_odds)
+
     def calculate_clv(self, date, home, away, model_p1, model_px, model_p2) -> dict:
         """
         Calculates the CLV (Expected Value based on closing lines) for a specific match.
@@ -51,12 +84,7 @@ class CLVTracker:
             
         row = match_row.iloc[0]
         
-        # We enforce using Sharp books closing lines (Pinnacle prefix 'pin_')
-        pin_h = row.get('pin_H', np.nan)
-        pin_d = row.get('pin_D', np.nan)
-        pin_a = row.get('pin_A', np.nan)
-        
-        sharp_p1, sharp_px, sharp_p2 = self._remove_vig(pin_h, pin_d, pin_a)
+        sharp_p1, sharp_px, sharp_p2, best_h, best_d, best_a = self._get_best_sharp_probs(row)
         
         if sharp_p1 == 0.0:
              return {'status': 'missing_odds'}
@@ -67,9 +95,9 @@ class CLVTracker:
         edge_2 = model_p2 - sharp_p2
         
         # Calculate EV if betting at market odds based on our probabilities
-        ev_1 = (model_p1 * pin_h) - 1.0 if edge_1 > 0 else 0.0
-        ev_x = (model_px * pin_d) - 1.0 if edge_x > 0 else 0.0
-        ev_2 = (model_p2 * pin_a) - 1.0 if edge_2 > 0 else 0.0
+        ev_1 = (model_p1 * best_h) - 1.0 if edge_1 > 0 else 0.0
+        ev_x = (model_px * best_d) - 1.0 if edge_x > 0 else 0.0
+        ev_2 = (model_p2 * best_a) - 1.0 if edge_2 > 0 else 0.0
         
         return {
             'status': 'success',

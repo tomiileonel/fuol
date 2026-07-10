@@ -112,6 +112,43 @@ class PaperTrader:
         await self.ledger.insert_one(trade_doc)
         return {"success": True, "trade": {k: v for k, v in trade_doc.items() if k != "_id"}}
 
+    async def settle_bet(self, match_id: str, selection_won: str):
+        """
+        Liquida todas las apuestas (PENDING) asociadas a un match_id dado el resultado real.
+        El stake ya fue descontado al abrir la posición. Solo se abonan las ganancias (stake * odds) si gana.
+        """
+        cursor = self.ledger.find({"match_id": match_id, "status": "PENDING"})
+        settled_count = 0
+        async for trade in cursor:
+            trade_id = trade["_id"]
+            stake = trade["stake"]
+            odds = trade["market_odds"]
+            selection = trade["selection"]
+            
+            if str(selection) == str(selection_won):
+                payout = stake * odds
+                status = "WON"
+                # Atomic credit
+                await self.db.wallet_state.find_one_and_update(
+                    {"_id": "main_wallet"},
+                    {"$inc": {"balance": payout}}
+                )
+            else:
+                payout = 0.0
+                status = "LOST"
+                
+            await self.ledger.update_one(
+                {"_id": trade_id},
+                {"$set": {
+                    "status": status, 
+                    "payout": payout, 
+                    "settled_at": datetime.datetime.now().isoformat()
+                }}
+            )
+            settled_count += 1
+            
+        return {"success": True, "match_id": match_id, "settled_count": settled_count}
+
     async def get_portfolio_summary(self):
         """Genera el resumen PnL para la UI."""
         cursor = self.ledger.find({}).sort("timestamp", -1)

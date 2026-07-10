@@ -231,7 +231,7 @@ class AdvancedDixonColes:
     # ------------------------------------------------------------------
     # Ajuste (fit)
     # ------------------------------------------------------------------
-    def fit(self, matches: list[dict], date_key: str = "date") -> DixonColesFitResult:
+    def fit(self, matches: list[dict], date_key: str = "date", skip_fisher_info: bool = False) -> DixonColesFitResult:
         """
         matches: lista de dicts con claves:
             'home' (str), 'away' (str), 'gh' (int goles local),
@@ -305,9 +305,12 @@ class AdvancedDixonColes:
         xi_pos = float(np.log1p(np.exp(xi)))
 
         # --- Matriz de Información de Fisher (para IC de los parámetros) ---
-        std_errors, cov_matrix = self._compute_std_errors(
-            theta_hat, home_idx, away_idx, gh, ga, t_norm
-        )
+        if skip_fisher_info:
+            std_errors, cov_matrix = None, None
+        else:
+            std_errors, cov_matrix = self._compute_std_errors(
+                theta_hat, home_idx, away_idx, gh, ga, t_norm
+            )
 
         n_obs = len(matches)
         ll = -result.fun

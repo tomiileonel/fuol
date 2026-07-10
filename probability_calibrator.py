@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.isotonic import IsotonicRegression
+from scipy.stats import ks_2samp
 from typing import Dict, Literal, Optional
 
 class ProbabilityCalibrator:
@@ -82,3 +83,23 @@ class ProbabilityCalibrator:
         # Avoid division by zero
         row_sums[row_sums == 0] = 1.0
         return calibrated / row_sums
+
+    @staticmethod
+    def check_drift(reference_probs: np.ndarray, recent_probs: np.ndarray, p_value_threshold: float = 0.05):
+        """
+        Circuit Breaker: Compares the distribution of recent predictions against a reference distribution
+        (e.g., from the calibration set) using the Kolmogorov-Smirnov test.
+        Aborts the pipeline (raises RuntimeError) if structural drift is detected.
+        """
+        if len(reference_probs) < 50 or len(recent_probs) < 50:
+            return # Not enough data to test drift
+
+        # Test each outcome (Home, Draw, Away)
+        for i, outcome in enumerate(['Home', 'Draw', 'Away']):
+            stat, p_value = ks_2samp(reference_probs[:, i], recent_probs[:, i])
+            if p_value < p_value_threshold:
+                raise RuntimeError(
+                    f"CRITICAL: Structural drift detected in {outcome} probabilities "
+                    f"(KS p-value={p_value:.4e} < {p_value_threshold}). "
+                    f"The model's underlying distribution has shifted. Re-calibration is strictly required."
+                )

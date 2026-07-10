@@ -109,6 +109,9 @@ class WalkForwardPipeline:
             train_preds = []
             y_train = []
             
+            unique_teams = pd.concat([train_df['home_team'], train_df['away_team']]).unique()
+            history_cache = {team: pipeline.get_team_history(train_df, team) for team in unique_teams}
+            
             # Note: For performance, predicting the entire train_df might be slow if UnifiedEngine is slow.
             # In a production environment, we'd cache base model predictions. 
             # For brevity, we sample the last 500 matches for calibration.
@@ -116,8 +119,8 @@ class WalkForwardPipeline:
             
             for _, row in calib_sample.iterrows():
                 h, a = row['home_team'], row['away_team']
-                h_hist = pipeline.get_team_history(train_df, h)
-                a_hist = pipeline.get_team_history(train_df, a)
+                h_hist = history_cache.get(h, [])
+                a_hist = history_cache.get(a, [])
                 
                 # Base model (no calibrator yet)
                 engine = UnifiedEngine(h, a, h_hist, a_hist, optimize_rho=False, 
@@ -151,8 +154,8 @@ class WalkForwardPipeline:
                 h, a = row['home_team'], row['away_team']
                 # We can use train_df + past test_df rows for history to be completely precise,
                 # but using train_df history is strict and prevents leakage.
-                h_hist = pipeline.get_team_history(train_df, h)
-                a_hist = pipeline.get_team_history(train_df, a)
+                h_hist = history_cache.get(h, [])
+                a_hist = history_cache.get(a, [])
                 
                 engine = UnifiedEngine(h, a, h_hist, a_hist, calibrator=calibrator, optimize_rho=False,
                                        half_life=self.half_life, 

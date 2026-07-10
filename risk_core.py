@@ -218,7 +218,35 @@ def estimate_correlation_same_matchday(
     data_matrix = np.array([
         residuals_by_match[mid][:min_len] for mid in match_ids
     ])
-    return np.cov(data_matrix)
+    
+    X = data_matrix.T  # shape: (n_samples, n_features)
+    n_samples, n_features = X.shape
+    
+    # Empirical covariance S
+    S = np.cov(X, rowvar=False)
+    
+    # Target matrix T: diagonal matrix with average variance
+    var_mean = np.mean(np.diag(S))
+    T = np.eye(n_features) * var_mean
+    
+    # Ledoit-Wolf shrinkage coefficient calculation
+    X_centered = X - np.mean(X, axis=0)
+    
+    S_var = 0.0
+    for i in range(n_samples):
+        outer = np.outer(X_centered[i], X_centered[i])
+        diff_sq = (outer - S)**2
+        S_var += np.sum(diff_sq)
+    S_var = S_var / (n_samples**2)
+    
+    den = np.sum((S - T)**2)
+    if den == 0:
+        alpha = 1.0
+    else:
+        alpha = min(1.0, max(0.0, S_var / den))
+        
+    # Shrunk covariance matrix
+    return (1 - alpha) * S + alpha * T
 
 
 # ============================================================================
