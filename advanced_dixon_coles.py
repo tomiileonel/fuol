@@ -542,10 +542,41 @@ class AdvancedDixonColes:
     def match_outcome_probs(self, home: str, away: str, max_goals: int = 10) -> dict:
         """P(1), P(X), P(2) integrando la matriz de marcadores completa."""
         m = self.predict_match_probs(home, away, max_goals)
-        p_home = np.tril(m, -1).sum()
-        p_draw = np.trace(m)
-        p_away = np.triu(m, 1).sum()
-        return {"home_win": float(p_home), "draw": float(p_draw), "away_win": float(p_away)}
+        p1, px, p2 = self.extract_1x2(m)
+        return {"home_win": p1, "draw": px, "away_win": p2}
+
+    @staticmethod
+    def extract_1x2(matrix: np.ndarray) -> tuple[float, float, float]:
+        """P(1), P(X), P(2) desde matriz."""
+        p1 = float(np.tril(matrix, -1).sum())
+        px = float(np.trace(matrix))
+        p2 = float(np.triu(matrix, 1).sum())
+        return p1, px, p2
+
+    @staticmethod
+    def score_matrix(lam: float, mu: float, rho: float, max_goals: Optional[int] = None) -> np.ndarray:
+        """
+        Matriz de probabilidades P(goals_A=i, goals_B=j) para uso externo (UnifiedEngine).
+        """
+        import math
+        if max_goals is None:
+            max_goals = max(7, int(np.ceil(max(lam, mu) + 3.0 * np.sqrt(max(lam, mu)))))
+            
+        goals = np.arange(0, max_goals + 1)
+        pmf_x = stats.poisson.pmf(goals, lam)
+        pmf_y = stats.poisson.pmf(goals, mu)
+        matrix = np.outer(pmf_x, pmf_y)
+        
+        x_grid, y_grid = np.meshgrid(goals, goals, indexing="ij")
+        lam_grid = np.full_like(x_grid, lam, dtype=float)
+        mu_grid = np.full_like(y_grid, mu, dtype=float)
+        tau_grid = AdvancedDixonColes._tau(x_grid.astype(float), y_grid.astype(float), lam_grid, mu_grid, rho)
+        
+        matrix = matrix * tau_grid
+        total = matrix.sum()
+        if total > 0:
+            matrix /= total
+        return matrix
 
 
 # ----------------------------------------------------------------------

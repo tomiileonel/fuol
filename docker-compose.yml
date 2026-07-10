@@ -1,14 +1,33 @@
- version: '3.8'
+version: "3.8"
+
 services:
   fuol:
     build: .
+    container_name: fuol_app
     ports:
       - "8000:8000"
     environment:
       MONGO_URI: mongodb://mongo:27017
+      PYTHONUNBUFFERED: "1"
     depends_on:
       - mongo
+    networks:
+      - fuol_network
+    restart: unless-stopped
+
   mongo:
     image: mongo:6
+    container_name: fuol_mongo
     ports:
       - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - fuol_network
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+
+networks:
+  fuol_network:

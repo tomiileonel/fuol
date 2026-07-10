@@ -39,7 +39,32 @@ def run_rolling_backtest(matches: list[dict[str, Any]], window: int = 20) -> Bac
             target = np.array([0.0, 1.0, 0.0])
         else:
             target = np.array([0.0, 0.0, 1.0])
-        p_vec = np.array([0.5, 0.25, 0.25])
+        from unified_engine import UnifiedEngine
+
+        # Extract histories for both teams from the available training window (or all past data)
+        # We use all matches up to `idx` for training to avoid data leakage
+        past_matches = matches[:idx]
+        matches_home = [m for m in past_matches if home in (m.get('home', m.get('team_a', '')), m.get('away', m.get('team_b', '')))]
+        matches_away = [m for m in past_matches if away in (m.get('home', m.get('team_a', '')), m.get('away', m.get('team_b', '')))]
+
+        if len(matches_home) < 5 or len(matches_away) < 5:
+            p_vec = np.array([0.5, 0.25, 0.25])
+        else:
+            engine = UnifiedEngine(
+                team_a=home,
+                team_b=away,
+                matches_a=matches_home,
+                matches_b=matches_away,
+                venue='N',
+                half_life=365.0,
+                optimize_rho=False
+            )
+            try:
+                pred = engine.predict()
+                p_vec = np.array([pred['p1'], pred['px'], pred['p2']])
+            except Exception:
+                p_vec = np.array([0.5, 0.25, 0.25])
+                
         p_vec = np.clip(p_vec, 1e-10, 1.0)
         p_vec /= p_vec.sum()
         briers.append(float(np.sum((p_vec - target) ** 2)))

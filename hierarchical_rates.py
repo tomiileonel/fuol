@@ -17,16 +17,13 @@ class HierarchicalPosterior:
 
 
 class HierarchicalBayesianRates:
-    def __init__(self, prior_strength: float = 6.0, confederation_priors: Optional[dict[str, float]] = None) -> None:
+    def __init__(self, prior_strength: float = 6.0, attack_priors: Optional[dict[str, float]] = None, defense_priors: Optional[dict[str, float]] = None) -> None:
         self.prior_strength = prior_strength
-        self.conf_priors = confederation_priors or {
-            'UEFA': 1.35,
-            'CONMEBOL': 1.32,
-            'AFC': 1.28,
-            'CAF': 1.25,
-            'CONCACAF': 1.30,
-            'OFC': 1.20,
-            'DEFAULT': 1.30,
+        self.attack_priors = attack_priors or {
+            'UEFA': 1.45, 'CONMEBOL': 1.40, 'AFC': 1.35, 'CAF': 1.30, 'CONCACAF': 1.35, 'OFC': 1.25, 'DEFAULT': 1.35
+        }
+        self.defense_priors = defense_priors or {
+            'UEFA': 1.05, 'CONMEBOL': 1.10, 'AFC': 1.20, 'CAF': 1.25, 'CONCACAF': 1.25, 'OFC': 1.45, 'DEFAULT': 1.25
         }
         self._fitted = False
         self._team_index: dict[str, int] = {}
@@ -56,10 +53,12 @@ class HierarchicalBayesianRates:
         mu_mle = np.where(n_matches > 0, goals_against / np.maximum(n_matches, 1.0), 1.3)
 
         confs = [team_confederations.get(team, 'DEFAULT') for team in teams]
-        conf_means = np.array([self.conf_priors.get(conf, 1.30) for conf in confs], dtype=float)
+        conf_attack_means = np.array([self.attack_priors.get(conf, 1.35) for conf in confs], dtype=float)
+        conf_defense_means = np.array([self.defense_priors.get(conf, 1.25) for conf in confs], dtype=float)
+        
         shrinkage = n_matches / (n_matches + self.prior_strength)
-        lambda_post = shrinkage * lambda_mle + (1.0 - shrinkage) * conf_means
-        mu_post = shrinkage * mu_mle + (1.0 - shrinkage) * conf_means
+        lambda_post = shrinkage * lambda_mle + (1.0 - shrinkage) * conf_attack_means
+        mu_post = shrinkage * mu_mle + (1.0 - shrinkage) * conf_defense_means
 
         effective_n = n_matches + self.prior_strength
         confederation_means = {}

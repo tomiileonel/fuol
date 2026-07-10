@@ -21,6 +21,10 @@ import warnings
 from hawkes_goals_process import HawkesGoalsProcess, HawkesParameters
 from quantum_match_state import MatchOutcome, QuantumAmplitudes, QuantumMatchState
 from pass_network_topology import PassNetworkAnalyzer
+import math
+from feature_engine import EloRegistry
+from advanced_dixon_coles import AdvancedDixonColes
+from probability_calibrator import ProbabilityCalibrator
 
 warnings.filterwarnings('ignore')
 
@@ -54,92 +58,7 @@ AVG_GOALS_WC_HISTORICAL: float = 1.32   # por equipo por partido (2.64 / 2)
 # COMPONENTE 1: ELO RATING (reemplaza PageRank y "ratio de dificultad")
 # ===========================================================================
 
-class EloRating:
-    """
-    Sistema Elo adaptado para fútbol internacional.
-    
-    Ventajas sobre PageRank en este contexto:
-    - Calibrado históricamente (K=40 para WC, K=20 competiciones ordinarias)
-    - Prior informativo desde ranking FIFA oficial
-    - No requiere grafo conexo (funciona con 0 partidos registrados)
-    - Expected score E_A = 1 / (1 + 10^((R_B - R_A)/400)) es una logística calibrada
-    
-    Referencia: Hvattum & Arntzen (2010), Journal of Quantitative Analysis in Sports
-    """
-    
-    K_WC = 40.0           # Mayor impacto en torneos mundiales
-    K_QUALIF = 30.0       # Clasificatorios
-    K_FRIENDLY = 20.0     # Amistosos
-    HOME_ADV = 100.0      # Ventaja de local en Elo (empírica: ≈ 65-100 puntos)
-    
-    # Multiplicador de conversión Elo → λ/μ
-    # A_ELO_LAMBDA: factor escala para convertir ventaja Elo en ratio de goles
-    ELO_SCALE = 400.0
-    LAMBDA_SCALE = 0.23   # NOTA: Este factor empírico idealmente debe ajustarse por regresión
-    
-    COMP_K = {
-        'WC 2026 Telemetry': K_WC,
-        'FIFA World Cup': K_WC,
-        'CONMEBOL': K_QUALIF,
-        'UEFA': K_QUALIF,
-        'AFC': K_QUALIF,
-        'CAF': K_QUALIF,
-        'CONCACAF': K_QUALIF,
-        'friendly': K_FRIENDLY,
-        'Friendly': K_FRIENDLY,
-        'N': K_FRIENDLY,
-    }
-    
-    def __init__(self, team_name: str, initial_elo: Optional[float] = None):
-        self.team_name = team_name
-        self.rating = initial_elo or ELO_INITIAL.get(team_name, ELO_INITIAL['DEFAULT'])
-    
-    def expected_score(self, opp_elo: float, venue: str = 'N') -> float:
-        """P(win + 0.5*draw) desde perspectiva de este equipo."""
-        home_bonus = self.HOME_ADV if venue == 'H' else (-self.HOME_ADV if venue == 'A' else 0.0)
-        diff = (self.rating + home_bonus) - opp_elo
-        return 1.0 / (1.0 + 10.0 ** (-diff / self.ELO_SCALE))
-    
-    def update(self, match: dict, opp_elo: float) -> float:
-        """Actualiza rating con resultado real. Retorna el nuevo rating."""
-        result = match.get('res', '')
-        if result == 'W':
-            s = 1.0
-        elif result == 'D':
-            s = 0.5
-        elif result == 'L':
-            s = 0.0
-        else:
-            gf, gc = match.get('gf', 0), match.get('gc', 0)
-            s = 1.0 if gf > gc else (0.5 if gf == gc else 0.0)
-        
-        comp = match.get('competition', match.get('comp', 'N'))
-        K = self.COMP_K.get(comp, self.K_FRIENDLY)
-        E = self.expected_score(opp_elo, match.get('venue', 'N'))
-        
-        self.rating += K * (s - E)
-        return self.rating
-    
-    def elo_from_matches(self, matches: list[dict]) -> float:
-        """
-        Reconstruye el Elo actual jugando todos los partidos secuencialmente.
-        Precondición: matches ordenados cronológicamente.
-        """
-        for m in sorted(matches, key=lambda x: x.get('date', '1970-01-01')):
-            opp_name = m.get('opponent', m.get('Opponent', 'DEFAULT'))
-            opp_elo = ELO_INITIAL.get(opp_name, ELO_INITIAL['DEFAULT'])
-            self.update(m, opp_elo)
-        return self.rating
-    
-    def expected_goal_ratio(self, opp_elo: float, venue: str = 'N') -> float:
-        """
-        Convierte ventaja Elo en ratio esperado de goles.
-        """
-        E = self.expected_score(opp_elo, venue)
-        # Clip para evitar log(0)
-        E_clipped = np.clip(E, 0.05, 0.95)
-        log_ratio = np.log(E_clipped / (1.0 - E_clipped)) * self.LAMBDA_SCALE
-        return np.exp(log_ratio)
+
 
 
 # ===========================================================================
@@ -391,7 +310,6 @@ class DixonColes:
                 if tau_val <= 0:
                     return 1e9
                 
-                import math
                 lam_c = max(lam_hat, 0.01)
                 mu_c = max(mu_hat, 0.01)
                 pmf_i = math.exp(-lam_c) * (lam_c**i) / math.factorial(i)
@@ -424,7 +342,6 @@ class DixonColes:
         for i in range(N):
             for j in range(N):
                 tau_val = self.tau(i, j, lam, mu, rho)
-                import math
                 lam_c = max(lam, 0.01)
                 mu_c = max(mu, 0.01)
                 pmf_i = math.exp(-lam_c) * (lam_c**i) / math.factorial(i)
@@ -488,6 +405,7 @@ class UnifiedEngine:
         precomputed_rho: Optional[float] = None,
         base_elo_a: Optional[float] = None,
         base_elo_b: Optional[float] = None,
+        calibrator: Optional[ProbabilityCalibrator] = None,
     ):
         self.team_a = team_a
         self.team_b = team_b
@@ -499,49 +417,47 @@ class UnifiedEngine:
         self.venue = venue
         self.modifiers_a = modifiers_a or {}
         self.modifiers_b = modifiers_b or {}
+        self.calibrator = calibrator
         
         # Inicializar subcomponentes
         all_matches = self.matches_a + self.matches_b
         
-        # Elo: reconstruir ratings desde historial o usar base precomputada
-        self.elo_a = EloRating(team_a, initial_elo=base_elo_a)
-        if base_elo_a is None:
-            self.elo_a.elo_from_matches(self.matches_a)
+        # Elo: extract from matches if available, else use base_elo or defaults
+        self.elo_a = base_elo_a
+        if self.elo_a is None and self.matches_a:
+            self.elo_a = self.matches_a[-1].get('elo_pre', 1600.0)
+        elif self.elo_a is None:
+            self.elo_a = 1600.0
             
-        self.elo_b = EloRating(team_b, initial_elo=base_elo_b)
-        if base_elo_b is None:
-            self.elo_b.elo_from_matches(self.matches_b)
+        self.elo_b = base_elo_b
+        if self.elo_b is None and self.matches_b:
+            self.elo_b = self.matches_b[-1].get('elo_pre', 1600.0)
+        elif self.elo_b is None:
+            self.elo_b = 1600.0
         
         # Optimizar half_life por LOO-CV si no se especifica
         if half_life is None and len(all_matches) >= 8:
             hl_a = TimeWeighter.optimize_half_life(self.matches_a)
             hl_b = TimeWeighter.optimize_half_life(self.matches_b)
             self.half_life = (hl_a + hl_b) / 2.0
-        else:
-            self.half_life = half_life or 365.0
-        
         self.weighter = TimeWeighter(self.half_life)
         self.bayes = BayesianGoalRates(prior_strength=prior_strength)
-        self.dc = DixonColes()
         
-        # Estimar ρ por MLE sobre datos combinados
+        # Estimar ρ por MLE sobre datos combinados o usar config
         if precomputed_rho is not None:
             self.rho = precomputed_rho
         else:
-            lam_all = np.mean([m['gf'] for m in all_matches]) if all_matches else 1.3
-            mu_all  = np.mean([m['gc'] for m in all_matches]) if all_matches else 1.3
-            
-            if optimize_rho and len(all_matches) >= 15:
-                self.rho = self.dc.fit_rho(all_matches, lam_all, mu_all)
-            else:
-                self.rho = -0.13  # fallback basado en literatura
+            # Fallback a un prior informado si no se computó globalmente
+            self.rho = -0.05
     
     def predict(self) -> dict:
         """
         Genera predicción completa con extensiones opcionales Hawkes/cuánticas/topológicas.
         """
-        elo_ratio_a = self.elo_a.expected_goal_ratio(self.elo_b.rating, self.venue)
-        elo_ratio_b = 1.0 / elo_ratio_a
+        # 1. Priors Bayesianos basados en Elo
+        registry = EloRegistry()
+        elo_ratio_a = registry.expected_goal_ratio(self.elo_a, self.elo_b, self.venue)
+        elo_ratio_b = registry.expected_goal_ratio(self.elo_b, self.elo_a, 'A' if self.venue == 'H' else ('H' if self.venue == 'A' else 'N'))
 
         lam, lam_def, lam_std, _, alpha_lam, beta_lam = self.bayes.compute_rates(
             self.matches_a, elo_ratio_a, self.weighter, self.modifiers_a
@@ -563,9 +479,28 @@ class UnifiedEngine:
         lam_final = w_dc * lam_final + w_hw * lam_hawkes
         mu_final = w_dc * mu_final + w_hw * mu_hawkes
 
-        matrix = self.dc.score_matrix(lam_final, mu_final, self.rho)
-        p1, px, p2 = self.dc.extract_1x2(matrix)
-        top_5 = self.dc.top_k_scores(matrix, k=5)
+        # 3. Probabilidades del partido (matriz completa)
+        matrix = AdvancedDixonColes.score_matrix(lam_final, mu_final, self.rho)
+        p1, px, p2 = AdvancedDixonColes.extract_1x2(matrix)
+        
+        # 4. Calibración (opcional)
+        if self.calibrator is not None:
+            raw_probs = np.array([[p1, px, p2]])
+            calibrated = self.calibrator.predict_proba(raw_probs)[0]
+            p1, px, p2 = calibrated[0], calibrated[1], calibrated[2]
+            # Nota: Al calibrar el 1X2, la matriz detallada pierde coherencia directa 
+            # con el 1X2 final si no se re-escala. Por ahora, reportamos 1X2 calibrado.
+        
+        top_scores = []
+        flat = matrix.flatten()
+        indices = np.argsort(flat)[::-1][:5]
+        for idx in indices:
+            i, j = np.unravel_index(idx, matrix.shape)
+            top_scores.append({
+                'score': f'{i}-{j}',
+                'goals_a': int(i), 'goals_b': int(j),
+                'prob': float(flat[idx])
+            })
 
         ci_lam = self.bayes.predictive_credible_interval(alpha_lam, beta_lam)
         ci_mu = self.bayes.predictive_credible_interval(alpha_mu, beta_mu)
@@ -807,7 +742,7 @@ def run_prediction(
     if run_backtest and len(matches_a) >= 8 and len(matches_b) >= 8:
         bt = WalkForwardBacktester(min_train_size=5)
         backtest_metrics = bt.run_walkforward(
-            team_a, team_b, matches_a, matches_b, venue=venue
+            team_a, team_b, matches_a, matches_b, venue=venue, half_life=result['half_life_days']
         )
         result['backtest_metrics'] = backtest_metrics
     
