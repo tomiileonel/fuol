@@ -52,48 +52,38 @@ class DataPipeline:
         
     def get_team_history(self, df: pd.DataFrame, team: str) -> list:
         """
-        Obtiene el historial de un equipo estandarizando las claves para el UnifiedEngine.
-        El motor requiere 'gf' (goles a favor) y 'gc' (goles en contra) desde la 
-        perspectiva del equipo, independientemente de si jugó de local o visitante.
+        Obtiene el historial calculando dinámicamente el Elo para que el motor 
+        bayesiano pueda diferenciar la fuerza estructural de cada equipo.
         """
-        # Filtrar partidos donde el equipo participó
         mask = (df['home_team'] == team) | (df['away_team'] == team)
-        team_df = df[mask].copy()
-        
-        # Ordenar por fecha cronológica
-        team_df = team_df.sort_values('date')
+        team_df = df[mask].copy().sort_values('date')
         
         history = []
+        elo = 1500.0  # Elo inicial base
+        
         for _, row in team_df.iterrows():
             is_home = row['home_team'] == team
+            home_score = int(row.get('home_score', row.get('gh', 0)))
+            away_score = int(row.get('away_score', row.get('ga', 0)))
             
-            # Extraer goles desde la perspectiva del equipo objetivo
-            # (Acepta tanto home_score/away_score como gh/ga por si el CSV cambia)
-            home_score = row.get('home_score', row.get('gh', 0))
-            away_score = row.get('away_score', row.get('ga', 0))
+            gf = home_score if is_home else away_score
+            gc = away_score if is_home else home_score
             
-            gf = int(home_score) if is_home else int(away_score)
-            gc = int(away_score) if is_home else int(home_score)
-            
-            # Extract features computed by feature engine for compatibility
-            gf_ewma = row.get('ewma_home_gf', 0) if is_home else row.get('ewma_away_gf', 0)
-            ga_ewma = row.get('ewma_home_ga', 0) if is_home else row.get('ewma_away_ga', 0)
-            elo_pre = row.get('elo_home_pre', 1600.0) if is_home else row.get('elo_away_pre', 1600.0)
+            # Actualización Elo simple (K=20, sin MoV para mantenerlo ligero en la API)
+            expected = 1 / (1 + 10 ** ((1500 - elo) / 400))  # Asume rival promedio
+            actual = 1.0 if gf > gc else 0.0 if gf < gc else 0.5
+            elo = elo + 20 * (actual - expected)
             
             history.append({
                 'date': str(row['date']),
                 'home': row['home_team'],
                 'away': row['away_team'],
-                'opponent': row['away_team'] if is_home else row['home_team'],
-                'venue': 'N' if row.get('neutral', False) else ('H' if is_home else 'A'),
-                'gf': gf,  # Goals For (Estandarizado)
-                'gc': gc,  # Goals Against (Estandarizado)
-                'gh': int(home_score), # Mantener originales por compatibilidad
-                'ga': int(away_score),
+                'gf': gf,
+                'gc': gc,
+                'gh': home_score,
+                'ga': away_score,
                 'tournament': row.get('tournament', 'Unknown'),
-                'elo_pre': elo_pre,
-                'gf_ewma': gf_ewma,
-                'ga_ewma': ga_ewma
+                'elo_pre': elo  # Inyectamos el Elo para el motor
             })
             
         return history
