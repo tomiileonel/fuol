@@ -479,9 +479,11 @@ class UnifiedEngine:
         p1, px, p2 = AdvancedDixonColes.extract_1x2(matrix)
         
         # 4. Calibración (opcional)
+        raw_uncalibrated = None
         if self.calibrator is not None:
             raw_probs = np.array([[p1, px, p2]])
             calibrated = self.calibrator.predict_proba(raw_probs)[0]
+            raw_uncalibrated = {'p1': float(p1), 'px': float(px), 'p2': float(p2)}
             p1, px, p2 = calibrated[0], calibrated[1], calibrated[2]
             # Nota: Al calibrar el 1X2, la matriz detallada pierde coherencia directa 
             # con el 1X2 final si no se re-escala. Por ahora, reportamos 1X2 calibrado.
@@ -509,6 +511,7 @@ class UnifiedEngine:
             'p1': round(p1, 4),
             'px': round(px, 4),
             'p2': round(p2, 4),
+            'raw_uncalibrated': raw_uncalibrated,
             'top_5_scores': top_scores,
             'lam': round(lam_final, 3),
             'mu': round(mu_final, 3),
@@ -552,6 +555,13 @@ class WalkForwardBacktester:
         pred: dict
     ) -> dict:
         """Calcula todas las métricas para un partido dado."""
+        def compute_metrics(p_vec, outcome_idx):
+            brier = float(np.sum((p_vec - y_true) ** 2))
+            log_loss = float(-np.log(max(p_vec[outcome_idx], 1e-15)))
+            rps_val = self.rps(p_vec, outcome_idx)
+            hit = int(np.argmax(p_vec) == outcome_idx)
+            return {'brier': brier, 'log_loss': log_loss, 'rps': rps_val, 'hit': hit}
+
         p1, px, p2 = pred['p1'], pred['px'], pred['p2']
         p_vec = np.array([p1, px, p2])
         p_vec = np.clip(p_vec, 1e-10, 1.0)
@@ -568,34 +578,37 @@ class WalkForwardBacktester:
             y_true = np.array([0.0, 0.0, 1.0])
             outcome_idx = 2
         
-        brier = float(np.sum((p_vec - y_true) ** 2))
-        log_loss = float(-np.log(p_vec[outcome_idx]))
-        rps_val = self.rps(p_vec, outcome_idx)
-        hit = int(np.argmax(p_vec) == outcome_idx)
-        
-        return {
-            'brier': brier, 'log_loss': log_loss,
-            'rps': rps_val, 'hit': hit,
+        metrics = compute_metrics(p_vec, outcome_idx)
+        metrics.update({
             'p1': float(p_vec[0]), 'px': float(p_vec[1]), 'p2': float(p_vec[2]),
             'y_true': int(outcome_idx),
             'lam_pred': pred.get('lam', 0), 'mu_pred': pred.get('mu', 0),
             'gf_true': actual_gf, 'gc_true': actual_gc,
-        }
+        })
+        
+        if pred.get('raw_uncalibrated'):
+            raw_p = pred['raw_uncalibrated']
+            rp_vec = np.array([raw_p['p1'], raw_p['px'], raw_p['p2']])
+            rp_vec = np.clip(rp_vec, 1e-10, 1.0)
+            rp_vec /= rp_vec.sum()
+            
+            raw_metrics = compute_metrics(rp_vec, outcome_idx)
+            raw_metrics.update({
+                'p1': float(rp_vec[0]), 'px': float(rp_vec[1]), 'p2': float(rp_vec[2])
+            })
+            metrics['raw_uncalibrated'] = raw_metrics
+            
+        return metrics
     
-    def aggregate(self) -> dict:
-        """Agrega métricas sobre todos los partidos evaluados."""
-        if not self.results:
-            return {}
+    def _compute_agg(self, results_list: list[dict]) -> dict:
+        n = len(results_list)
+        bs = np.mean([r['brier'] for r in results_list])
+        ll = np.mean([r['log_loss'] for r in results_list])
+        rps = np.mean([r['rps'] for r in results_list])
+        hit = np.mean([r['hit'] for r in results_list])
         
-        n = len(self.results)
-        bs = np.mean([r['brier'] for r in self.results])
-        ll = np.mean([r['log_loss'] for r in self.results])
-        rps = np.mean([r['rps'] for r in self.results])
-        hit = np.mean([r['hit'] for r in self.results])
-        
-        # Calibración: dividir predicciones en deciles y comparar con frecuencia real
-        p1_preds = np.array([r['p1'] for r in self.results])
-        y_true_1 = np.array([1.0 if r['y_true'] == 0 else 0.0 for r in self.results])
+        p1_preds = np.array([r['p1'] for r in results_list])
+        y_true_1 = np.array([1.0 if r['y_true'] == 0 else 0.0 for r in results_list])
         
         calibration_bins = {}
         for bin_lo, bin_hi in [(i/10, (i+1)/10) for i in range(10)]:
@@ -607,15 +620,14 @@ class WalkForwardBacktester:
                     'actual_freq': float(y_true_1[mask].mean()),
                 }
         
-        # ECE (Expected Calibration Error)
         ece = sum(
             abs(v['pred_mean'] - v['actual_freq']) * v['n'] / n
             for v in calibration_bins.values()
         )
         
         rps_by_match = {
-            r['match'].get('date', f'unknown_{i}'): r['rps']
-            for i, r in enumerate(self.results)
+            r.get('match', {}).get('date', f'unknown_{i}'): r['rps']
+            for i, r in enumerate(results_list) if 'rps' in r
         }
         
         return {
@@ -628,6 +640,33 @@ class WalkForwardBacktester:
             'calibration': calibration_bins,
             'rps_by_match': rps_by_match,
         }
+        
+    def aggregate(self) -> dict:
+        """Agrega métricas sobre todos los partidos evaluados."""
+        if not self.results:
+            return {}
+            
+        agg = self._compute_agg(self.results)
+        
+        has_raw = any('raw_uncalibrated' in r for r in self.results)
+        if has_raw:
+            raw_results = []
+            for r in self.results:
+                if 'raw_uncalibrated' in r:
+                    raw_r = r['raw_uncalibrated'].copy()
+                    raw_r['y_true'] = r['y_true']
+                    raw_r['match'] = r.get('match', {})
+                    raw_results.append(raw_r)
+                else:
+                    raw_r = r.copy()
+                    raw_results.append(raw_r)
+            
+            agg_raw = self._compute_agg(raw_results)
+            agg['raw_uncalibrated'] = agg_raw
+            agg['delta_brier'] = round(agg['brier_score'] - agg_raw['brier_score'], 4)
+            agg['delta_ece'] = round(agg['ece'] - agg_raw['ece'], 4)
+            
+        return agg
     
     def run_walkforward(
         self,
@@ -637,9 +676,11 @@ class WalkForwardBacktester:
         half_life: Optional[float] = None,
         optimize_rho: bool = True,
         eval_start_idx: Optional[int] = None,
+        calibrator_method: Optional[str] = None,
+        calibrator_refit_every: int = 1,
     ) -> dict:
         """
-        Simulación walk-forward completa.
+        Simulación walk-forward completa con calibración anti-leakage.
         """
         if half_life is None:
             raise AssertionError(
@@ -649,9 +690,19 @@ class WalkForwardBacktester:
                 "fold hacia la selección del hiperparámetro (double dipping). "
                 "Corré fase2_barrido.py para elegir un half_life primero."
             )
+            
+        if calibrator_method is not None and calibrator_method not in ['platt', 'isotonic']:
+            raise ValueError("calibrator_method debe ser 'platt', 'isotonic' o None")
 
         sorted_a = sorted(all_matches_a, key=lambda m: m.get('date', '1970-01-01'))
         start_idx = max(self.min_train_size, eval_start_idx if eval_start_idx is not None else 0)
+        
+        calibrator = None
+        if calibrator_method:
+            calibrator = ProbabilityCalibrator(method=calibrator_method)
+            
+        accumulated_raw_probs = []
+        accumulated_y_true = []
         
         for k in range(start_idx, len(sorted_a)):
             train_a = sorted_a[:k]
@@ -663,21 +714,40 @@ class WalkForwardBacktester:
             
             if len(train_b) < 3:
                 continue  # insuficientes datos del oponente
+                
+            # Anti-leakage calibration: fit strictly on past accumulated predictions
+            if calibrator and len(accumulated_y_true) >= 30 and len(accumulated_y_true) % calibrator_refit_every == 0:
+                calibrator.fit(np.array(accumulated_raw_probs), np.array(accumulated_y_true))
             
             try:
+                active_calibrator = calibrator if calibrator and len(accumulated_y_true) >= 30 else None
+                
                 engine = UnifiedEngine(
                     team_a=team_a, team_b=team_b,
                     matches_a=train_a, matches_b=train_b,
                     venue=venue,
                     half_life=half_life,
                     optimize_rho=optimize_rho,
+                    calibrator=active_calibrator
                 )
                 pred = engine.predict()
-                metrics = self.evaluate_match(
-                    int(test_m.get('gf', 0)), int(test_m.get('gc', 0)), pred
-                )
+                
+                actual_gf = int(test_m.get('gf', 0))
+                actual_gc = int(test_m.get('gc', 0))
+                metrics = self.evaluate_match(actual_gf, actual_gc, pred)
                 metrics['match'] = test_m
                 self.results.append(metrics)
+                
+                # Accumulate actual outcomes and raw probabilities for next folds
+                if calibrator_method:
+                    raw_p = pred.get('raw_uncalibrated') or pred
+                    accumulated_raw_probs.append([raw_p['p1'], raw_p['px'], raw_p['p2']])
+                    
+                    if actual_gf > actual_gc: y = 0
+                    elif actual_gf == actual_gc: y = 1
+                    else: y = 2
+                    accumulated_y_true.append(y)
+                    
             except Exception as e:
                 print(f"[WalkForward] Error en partido {k}: {e}")
                 continue
