@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 import os
+import difflib
 
 warnings.filterwarnings('ignore')
 
@@ -32,6 +33,42 @@ pipeline = DataPipeline()
 HIST_DF, _ = pipeline.prepare_data()
 HIST_DF['date'] = pd.to_datetime(HIST_DF['date'])
 HIST_DF = HIST_DF[HIST_DF['date'] < pd.Timestamp.now().normalize()]
+
+ALL_TEAMS = set(HIST_DF['home_team'].unique()) | set(HIST_DF['away_team'].unique())
+TEAM_ALIASES = {
+    "SUIZA": "Switzerland", 
+    "ARGENTINA": "Argentina", 
+    "BRASIL": "Brazil", 
+    "INGLATERRA": "England", 
+    "NORUEGA": "Norway",
+    "ALEMANIA": "Germany",
+    "ESPAÑA": "Spain",
+    "FRANCIA": "France",
+    "ITALIA": "Italy"
+}
+
+def normalize_team_name(team_input: str) -> str:
+    """Traduce y hace fuzzy matching para encontrar el equipo en la DB."""
+    team_upper = team_input.upper().strip()
+    
+    # 1. Si es un alias conocido
+    if team_upper in TEAM_ALIASES:
+        mapped = TEAM_ALIASES[team_upper]
+        if mapped in ALL_TEAMS:
+            return mapped
+    
+    # 2. Búsqueda exacta (case-insensitive)
+    for team in ALL_TEAMS:
+        if team.upper() == team_upper:
+            return team
+            
+    # 3. Búsqueda difusa
+    matches = difflib.get_close_matches(team_input, list(ALL_TEAMS), n=1, cutoff=0.85)
+    if matches:
+        return matches[0]
+        
+    return team_input
+
 print("Histórico cargado. Servidor listo.")
 
 class PredictionRequest(BaseModel):
@@ -40,20 +77,21 @@ class PredictionRequest(BaseModel):
 
 @app.post("/api/predict")
 async def get_prediction(req: PredictionRequest):
-    team_a = req.team_a.upper()
-    team_b = req.team_b.upper()
+    # Normalizar nombres antes de buscar en el motor
+    team_a_norm = normalize_team_name(req.team_a)
+    team_b_norm = normalize_team_name(req.team_b)
     
-    matches_a = pipeline.get_team_history(HIST_DF, team_a)
-    matches_b = pipeline.get_team_history(HIST_DF, team_b)
+    matches_a = pipeline.get_team_history(HIST_DF, team_a_norm)
+    matches_b = pipeline.get_team_history(HIST_DF, team_b_norm)
     
     if not matches_a or len(matches_a) < 5:
-        raise HTTPException(status_code=404, detail=f"Sin historial suficiente para {team_a}")
+        raise HTTPException(status_code=404, detail=f"Equipo '{req.team_a}' no encontrado en el histórico (Buscado como: '{team_a_norm}')")
     if not matches_b or len(matches_b) < 5:
-        raise HTTPException(status_code=404, detail=f"Sin historial suficiente para {team_b}")
+        raise HTTPException(status_code=404, detail=f"Equipo '{req.team_b}' no encontrado en el histórico (Buscado como: '{team_b_norm}')")
 
     try:
         engine = UnifiedEngine(
-            team_a=team_a, team_b=team_b,
+            team_a=team_a_norm, team_b=team_b_norm,
             matches_a=matches_a, matches_b=matches_b,
             venue='N', half_life=365.0
         )
