@@ -114,40 +114,39 @@ class PaperTrader:
 
     async def settle_bet(self, match_id: str, selection_won: str):
         """
-        Liquida todas las apuestas (PENDING) asociadas a un match_id dado el resultado real.
-        El stake ya fue descontado al abrir la posición. Solo se abonan las ganancias (stake * odds) si gana.
+        Liquida todas las apuestas (PENDING) asociadas a un match_id dado el resultado real usando transacciones ACID.
         """
-        cursor = self.ledger.find({"match_id": match_id, "status": "PENDING"})
-        settled_count = 0
-        async for trade in cursor:
-            trade_id = trade["_id"]
-            stake = trade["stake"]
-            odds = trade["market_odds"]
-            selection = trade["selection"]
-            
-            if str(selection) == str(selection_won):
-                payout = stake * odds
-                status = "WON"
-                # Atomic credit
-                await self.db.wallet_state.find_one_and_update(
-                    {"_id": "main_wallet"},
-                    {"$inc": {"balance": payout}}
-                )
-            else:
-                payout = 0.0
-                status = "LOST"
-                
-            await self.ledger.update_one(
-                {"_id": trade_id},
-                {"$set": {
-                    "status": status, 
-                    "payout": payout, 
-                    "settled_at": datetime.datetime.now().isoformat()
-                }}
-            )
-            settled_count += 1
-            
-        return {"success": True, "match_id": match_id, "settled_count": settled_count}
+        async with await self.client.start_session() as session:
+            async with session.start_transaction():
+                try:
+                    cursor = self.ledger.find({"match_id": match_id, "status": "PENDING"}, session=session)
+                    settled_count = 0
+                    async for trade in cursor:
+                        stake = trade["stake"]
+                        odds = trade["market_odds"]
+                        selection = trade["selection"]
+                        
+                        if str(selection) == str(selection_won):
+                            payout = stake * odds
+                            status = "WON"
+                            await self.db.wallet_state.update_one(
+                                {"_id": "main_wallet"}, {"$inc": {"balance": payout}}, session=session
+                            )
+                        else:
+                            payout = 0.0
+                            status = "LOST"
+                            
+                        await self.ledger.update_one(
+                            {"_id": trade["_id"]},
+                            {"$set": {"status": status, "payout": payout, 
+                                      "settled_at": datetime.datetime.now().isoformat()}},
+                            session=session
+                        )
+                        settled_count += 1
+                    
+                    return {"success": True, "match_id": match_id, "settled_count": settled_count}
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
 
     async def get_portfolio_summary(self):
         """Genera el resumen PnL para la UI."""

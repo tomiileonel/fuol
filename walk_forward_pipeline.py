@@ -146,6 +146,9 @@ class WalkForwardPipeline:
             calibrator = ProbabilityCalibrator(method='isotonic')
             calibrator.fit(np.array(train_preds), np.array(y_train))
             
+            # Use calibrated training predictions as the reference distribution for drift monitoring
+            drift_reference = calibrator.predict_proba(np.array(train_preds))
+            
             # 2. Predict on Test Set USING the calibrator
             test_preds = []
             y_test = []
@@ -171,7 +174,15 @@ class WalkForwardPipeline:
                         y_test.append(1)
                     else:
                         y_test.append(2)
-                except Exception:
+                        
+                    # Circuit Breaker: Check for drift every 50 predictions
+                    if len(test_preds) % 50 == 0:
+                        ProbabilityCalibrator.check_drift(drift_reference, np.array(test_preds[-50:]))
+                        
+                except Exception as e:
+                    if isinstance(e, RuntimeError) and "Structural drift detected" in str(e):
+                        # Propagate circuit breaker exceptions
+                        raise e
                     pass
                     
             if test_preds:
