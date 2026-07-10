@@ -87,7 +87,7 @@ class CLVTracker:
         Statistical test to see if the model systematically beats the closing line.
         Null hypothesis: Model max_clv <= 0 (No edge over sharp books).
         """
-        valid_clvs = [r['max_clv'] for r in clv_results if r['status'] == 'success' and r['max_clv'] > 0]
+        valid_clvs = [r['max_clv'] for r in clv_results if r['status'] == 'success']
         
         if len(valid_clvs) < 30:
             return {'significant': False, 'message': 'Not enough data points for T-test (<30)', 'mean_clv': np.mean(valid_clvs) if valid_clvs else 0}

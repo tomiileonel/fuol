@@ -505,31 +505,16 @@ class UnifiedEngine:
         ci_lam = self.bayes.predictive_credible_interval(alpha_lam, beta_lam)
         ci_mu = self.bayes.predictive_credible_interval(alpha_mu, beta_mu)
 
-        q_state = QuantumMatchState(
-            state=QuantumAmplitudes.from_probabilities_and_phases(MatchOutcome(p1, px, p2))
-        )
-        if self.venue == 'H':
-            q_state = q_state.apply_home_advantage(strength=0.15)
-        elif self.venue == 'A':
-            q_state = q_state.apply_home_advantage(strength=-0.15)
-
-        if self.modifiers_a.get('injury_modifier', 1.0) < 0.9:
-            q_state = q_state.apply_injury_impact('home', severity=1.0 - self.modifiers_a.get('injury_modifier', 1.0))
-        if self.modifiers_b.get('injury_modifier', 1.0) < 0.9:
-            q_state = q_state.apply_injury_impact('away', severity=1.0 - self.modifiers_b.get('injury_modifier', 1.0))
-
-        final_probs = q_state.collapse()
-
         network_features = None
         if hasattr(self, 'pass_matrix_a') and self.pass_matrix_a is not None:
             analyzer = PassNetworkAnalyzer()
             network_features = analyzer.analyze(self.pass_matrix_a).as_feature_vector().tolist()
 
         return {
-            'p1': round(final_probs.home, 4),
-            'px': round(final_probs.draw, 4),
-            'p2': round(final_probs.away, 4),
-            'top_5_scores': top_5,
+            'p1': round(p1, 4),
+            'px': round(px, 4),
+            'p2': round(p2, 4),
+            'top_5_scores': top_scores,
             'lam': round(lam_final, 3),
             'mu': round(mu_final, 3),
             'lam_std': round(lam_std, 3),

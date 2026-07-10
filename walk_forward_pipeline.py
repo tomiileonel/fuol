@@ -117,7 +117,7 @@ class WalkForwardPipeline:
                 engine = UnifiedEngine(h, a, h_hist, a_hist, optimize_rho=False)
                 try:
                     pred = engine.predict()
-                    train_preds.append([pred.get('home_win', 0.33), pred.get('draw', 0.33), pred.get('away_win', 0.33)])
+                    train_preds.append([pred.get('p1', 0.33), pred.get('px', 0.33), pred.get('p2', 0.33)])
                     
                     if row['home_score'] > row['away_score']:
                         y_train.append(0)
@@ -148,7 +148,7 @@ class WalkForwardPipeline:
                 engine = UnifiedEngine(h, a, h_hist, a_hist, calibrator=calibrator, optimize_rho=False)
                 try:
                     pred = engine.predict()
-                    test_preds.append([pred.get('home_win', 0.33), pred.get('draw', 0.33), pred.get('away_win', 0.33)])
+                    test_preds.append([pred.get('p1', 0.33), pred.get('px', 0.33), pred.get('p2', 0.33)])
                     
                     if row['home_score'] > row['away_score']:
                         y_test.append(0)
