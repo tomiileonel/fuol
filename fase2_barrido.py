@@ -59,8 +59,8 @@ def main():
     print("Iniciando Optimización Bayesiana con Optuna...")
     study = optuna.create_study(direction="minimize", study_name="fuol_hyperparams")
     
-    # Optimizar con un máximo de 50 trials (ajustar en producción)
-    study.optimize(objective, n_trials=10, timeout=3600)
+    # 100 trials recomendado para convergencia en 3 hiperparámetros
+    study.optimize(objective, n_trials=100, timeout=3600)
     
     print("\n=== RANKING (menor RPS primero = mejor) ===")
     print("Mejores Parámetros:")
