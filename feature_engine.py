@@ -90,8 +90,7 @@ class EloRegistry:
 class FeatureEngineer:
     """
     Computes advanced features for the prediction pipeline:
-    - Opponent-adjusted EWMA (Exponentially Weighted Moving Average)
-    - Geographic / Travel fatigue
+    - Base Elos extraction
     """
     
     @staticmethod
