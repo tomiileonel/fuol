@@ -6,6 +6,25 @@ FUOL (Football Unified Optimization Layer) es un sistema cuantitativo para predi
 
 Este proyecto sigue una filosofía de 0% inversión: no se implementarán flujos que requieran dinero real, pagos de APIs comerciales ni operaciones financieras reales. Cuando se integre datos externos, solo se usarán fuentes gratuitas, públicas o de demostración.
 
+## Rendimiento y Validación (Walk-Forward)
+
+El motor ha sido calibrado mediante optimización bayesiana (Optuna) y validado estadísticamente con un bootstrap pareado frente al baseline. A continuación, el rendimiento en un riguroso backtest *walk-forward* (evaluando solo datos fuera de muestra sin look-ahead bias) para el período post-pandemia completo.
+
+### Backtest 2020-2026 (6 Temporadas)
+- **Partidos evaluados**: 6118
+- **Hit Rate (1X2)**: 57.8%
+- **Brier Score**: 0.5403
+- **Ranked Probability Score (RPS)**: 0.1821
+
+*Nota: Un RPS por debajo de 0.20 en fútbol internacional de élite (selecciones) indica que el motor se encuentra compitiendo a niveles de precisión equiparables a los modelos de casas de apuestas profesionales.*
+
+### Validación estadística
+Los hiperparámetros (`lambda_scale=0.4031`, `prior_strength=7.21`, `half_life=365`) fueron calibrados con Optuna y validados con bootstrap pareado (B=10000) contra el baseline sobre 989 partidos out-of-sample:
+
+| Métrica | Baseline | Optimizado | Delta | IC 95% |
+|---------|----------|------------|-------|--------|
+| RPS Holdout | 0.1824 | 0.1765 | -3.23% | [0.00319, 0.00861] |
+
 ## Características principales
 
 - Motor estadístico unificado para predicción 1X2.

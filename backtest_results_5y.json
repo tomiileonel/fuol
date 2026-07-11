@@ -1,0 +1,16 @@
+{
+  "period": "2020-01-01 to 2026-07-03",
+  "n_matches": 6118,
+  "n_folds": 1336,
+  "hyperparameters": {
+    "lambda_scale": 0.4031,
+    "prior_strength": 7.21,
+    "half_life": 365.0
+  },
+  "metrics": {
+    "rps": 0.1821,
+    "brier": 0.5403,
+    "hit_rate_pct": 57.8
+  },
+  "timestamp": "2026-07-11T13:29:09.845333"
+}
