@@ -30,7 +30,7 @@ Solo se usan fuentes gratuitas, públicas o de demostración.
   - `BayesianGoalRates`: inferencia Gamma-Poisson con prior informativo
     desde Elo.
   - `DixonColes`: corrección ρ estimada por MLE con prior Bayesiano.
-  - `WalkForwardBacktester`: evaluación walk-forward con Brier, Log-Loss,
+  - `WalkForwardPipeline`: evaluación walk-forward global con Brier, Log-Loss,
     RPS (Ranked Probability Score) y ECE (calibration error).
 - **`advanced_dixon_coles.py`**: extensión con MLE conjunta, matriz de
   información de Fisher para IC de parámetros, y cópula de Frank
@@ -104,7 +104,7 @@ Cuando se solicita un análisis de partido, el pipeline es:
 1. Si hay un `ProbabilityCalibrator` ajustado, re-calibrar el 1X2.
 
 ### FASE 4: VALIDACIÓN WALK-FORWARD
-1. Si hay ≥8 partidos por equipo, ejecutar `WalkForwardBacktester`.
+1. Si se solicita evaluación histórica, ejecutar `WalkForwardPipeline.run()`.
 2. Reportar Brier, Log-Loss, RPS, Hit Rate y ECE.
 
 ### FASE 5: EVALUACIÓN DE RIESGO Y VALOR (KELLY)

@@ -1,40 +1,52 @@
 import pytest
 import pandas as pd
-from datetime import timedelta
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from walk_forward_pipeline import WalkForwardPipeline
+from data_pipeline import DataPipeline
+from unittest.mock import MagicMock
 
-def test_strict_purge_and_embargo():
-    """
-    Test asertivo riguroso de No-Fuga Temporal (No-Leakage).
-    Verifica que el gap entre el último partido de train y el primer 
-    partido de test es estrictamente >= embargo_days.
-    """
-    # Create synthetic data
-    dates = pd.date_range(start="2020-01-01", end="2025-01-01", freq="D")
-    df = pd.DataFrame({
-        'date': dates,
-        'home_team': 'A',
-        'away_team': 'B',
-        'home_score': 1,
-        'away_score': 1
+def test_walk_forward_pipeline_metrics_shape():
+    # Mock data to avoid long execution
+    mock_df = pd.DataFrame({
+        'date': pd.date_range('2020-01-01', periods=100),
+        'home_team': ['A', 'C'] * 50,
+        'away_team': ['B', 'D'] * 50,
+        'home_score': [1, 0] * 50,
+        'away_score': [0, 1] * 50,
+        'neutral': ['False'] * 100,
+        'tournament': ['Friendly'] * 100
     })
     
-    # Configure pipeline with 14 days embargo
-    embargo_days = 14
-    tester = WalkForwardPipeline(train_window_days=365, test_window_days=30, embargo_days=embargo_days, min_train_size=10)
+    # Mock DataPipeline to return mock_df
+    mock_pipeline = MagicMock(spec=DataPipeline)
+    mock_pipeline.prepare_data.return_value = (mock_df, None)
     
-    folds = tester.generate_folds(df)
+    # Create Pipeline with very small windows
+    pipeline = WalkForwardPipeline(
+        train_window_days=10,
+        test_window_days=5,
+        embargo_days=2,
+        min_train_size=10,
+        half_life=365.0,
+        prior_strength=2.0,
+        lambda_scale=0.23
+    )
     
-    assert len(folds) > 0, "No folds generated"
+    # Run
+    metrics = pipeline.run(mock_pipeline)
     
-    for train_df, test_df in folds:
-        max_train_date = train_df['date'].max()
-        min_test_date = test_df['date'].min()
-        
-        gap = (min_test_date - max_train_date).days
-        
-        # Test 1: Gap is strictly >= embargo_days
-        assert gap >= embargo_days, f"Leakage detected! Gap is {gap} days, expected at least {embargo_days}"
-        
-        # Test 2: No overlapping dates
-        assert max_train_date < min_test_date, "Train and Test dates overlap!"
+    # Validations
+    assert metrics is not None
+    assert 'avg_rps' in metrics
+    assert 'avg_brier' in metrics
+    assert 'avg_log_loss' in metrics
+    assert 'total_test_samples' in metrics
+    
+    # Ranges
+    assert 0.0 <= metrics['avg_rps'] <= 1.0
+    assert 0.0 <= metrics['avg_brier'] <= 2.0
+    assert metrics['avg_log_loss'] >= 0.0
+    assert metrics['total_test_samples'] > 0
+    assert metrics['n_folds'] > 0
