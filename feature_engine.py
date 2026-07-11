@@ -75,6 +75,10 @@ class EloRegistry:
         else:
             mov = (11.0 + goal_diff) / 8.0
 
+        # Anti-inflation correction for mismatched teams
+        elo_diff = abs(rating_a - rating_b)
+        mov *= (2.2 / (elo_diff * 0.001 + 2.2))
+
         k = self.get_k_factor(competition)
         
         # Updates
@@ -110,7 +114,7 @@ class FeatureEngineer:
     @staticmethod
     def build_features(df: pd.DataFrame, elo_registry: EloRegistry = None) -> pd.DataFrame:
         """
-        Process an entire historical dataframe to compute Elos and EWMA features incrementally.
+        Process an entire historical dataframe to compute Elos incrementally.
         Assumes df is chronologically sorted.
         Expects columns: date, home_team, away_team, home_score, away_score, tournament, neutral, country
         """
@@ -122,26 +126,13 @@ class FeatureEngineer:
         pre_elo_home = []
         pre_elo_away = []
         
-        # We also want to track EWMA of adjusted goals
-        # Adjusted Goals = Actual Goals * (Average Elo / Opponent Elo)
-        # To avoid early division by zero/unstable Elos, we cap the multiplier.
-        ewma_goals_for = {}
-        ewma_goals_against = {}
-        
-        alpha = 0.15 # Approx half-life of 4-5 matches
-        
-        feat_home_gf_ewma = []
-        feat_home_ga_ewma = []
-        feat_away_gf_ewma = []
-        feat_away_ga_ewma = []
-        
-        for idx, row in df.iterrows():
-            h_team = row['home_team']
-            a_team = row['away_team']
-            h_goals = row['home_score']
-            a_goals = row['away_score']
-            comp = row['tournament']
-            neutral = row.get('neutral', False)
+        for row in df.itertuples():
+            h_team = row.home_team
+            a_team = row.away_team
+            h_goals = row.home_score
+            a_goals = row.away_score
+            comp = row.tournament
+            neutral = getattr(row, 'neutral', False)
             venue = 'N' if neutral else 'H'
             
             # 1. Get Pre-Match Elos
@@ -151,36 +142,11 @@ class FeatureEngineer:
             pre_elo_home.append(elo_h)
             pre_elo_away.append(elo_a)
             
-            # 2. Record pre-match EWMAs
-            feat_home_gf_ewma.append(ewma_goals_for.get(h_team, 1.3))
-            feat_home_ga_ewma.append(ewma_goals_against.get(h_team, 1.3))
-            feat_away_gf_ewma.append(ewma_goals_for.get(a_team, 1.3))
-            feat_away_ga_ewma.append(ewma_goals_against.get(a_team, 1.3))
-            
-            # 3. Opponent adjustment
-            adj_h_gf = h_goals * (1600.0 / max(elo_a, 1000.0))
-            adj_h_ga = a_goals * (elo_a / 1600.0)
-            
-            adj_a_gf = a_goals * (1600.0 / max(elo_h, 1000.0))
-            adj_a_ga = h_goals * (elo_h / 1600.0)
-            
-            # 4. Update EWMAs
-            ewma_goals_for[h_team] = (alpha * adj_h_gf) + ((1 - alpha) * ewma_goals_for.get(h_team, 1.3))
-            ewma_goals_against[h_team] = (alpha * adj_h_ga) + ((1 - alpha) * ewma_goals_against.get(h_team, 1.3))
-            
-            ewma_goals_for[a_team] = (alpha * adj_a_gf) + ((1 - alpha) * ewma_goals_for.get(a_team, 1.3))
-            ewma_goals_against[a_team] = (alpha * adj_a_ga) + ((1 - alpha) * ewma_goals_against.get(a_team, 1.3))
-            
-            # 5. Update Elo
+            # 2. Update Elo
             elo_registry.update(h_team, a_team, h_goals, a_goals, comp, venue)
             
         df['elo_home_pre'] = pre_elo_home
         df['elo_away_pre'] = pre_elo_away
-        
-        df['ewma_home_gf'] = feat_home_gf_ewma
-        df['ewma_home_ga'] = feat_home_ga_ewma
-        df['ewma_away_gf'] = feat_away_gf_ewma
-        df['ewma_away_ga'] = feat_away_ga_ewma
         
         return df
 
