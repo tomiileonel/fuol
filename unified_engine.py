@@ -334,16 +334,24 @@ class DixonColes:
             max_goals = max(7, int(np.ceil(max(lam, mu) + 3.0 * np.sqrt(max(lam, mu)))))
         
         N = max_goals + 1
-        matrix = np.zeros((N, N))
         
-        for i in range(N):
-            for j in range(N):
-                tau_val = self.tau(i, j, lam, mu, rho)
-                lam_c = max(lam, 0.01)
-                mu_c = max(mu, 0.01)
-                pmf_i = math.exp(-lam_c) * (lam_c**i) / math.factorial(i)
-                pmf_j = math.exp(-mu_c) * (mu_c**j) / math.factorial(j)
-                matrix[i, j] = tau_val * pmf_i * pmf_j
+        goals = np.arange(0, N)
+        lam_c = max(lam, 0.01)
+        mu_c = max(mu, 0.01)
+        
+        pmf_i = stats.poisson.pmf(goals, lam_c)
+        pmf_j = stats.poisson.pmf(goals, mu_c)
+        matrix = np.outer(pmf_i, pmf_j)
+        
+        tau_grid = np.ones_like(matrix)
+        if N > 0:
+            tau_grid[0, 0] = 1 - lam * mu * rho
+        if N > 1:
+            tau_grid[0, 1] = 1 + lam * rho
+            tau_grid[1, 0] = 1 + mu * rho
+            tau_grid[1, 1] = 1 - rho
+            
+        matrix = matrix * tau_grid
         
         # Renormalizar (suma ≠ 1.0 por truncación)
         total = matrix.sum()
@@ -525,167 +533,6 @@ class UnifiedEngine:
 
 
 # ===========================================================================
-# COMPONENTE 6: BACKTESTING WALK-FORWARD (Fase 4)
-# ===========================================================================
-
-class WalkForwardBacktester:
-    """
-    Protocolo de evaluación walk-forward correcto.
-    """
-    
-    def __init__(self, min_train_size: int = 8):
-        self.min_train_size = min_train_size
-        self.results: list[dict] = []
-    
-    @staticmethod
-    def rps(p_pred: np.ndarray, outcome: int) -> float:
-        """
-        Ranked Probability Score para predicciones ordinales 1X2.
-        """
-        cdf_pred = np.cumsum(p_pred)[:2]  # CDF en puntos 1 y X
-        cdf_true = np.cumsum(np.eye(3)[outcome])[:2]
-        return float(np.mean((cdf_pred - cdf_true) ** 2))
-    
-    def evaluate_match(
-        self,
-        actual_gf: int, actual_gc: int,
-        pred: dict
-    ) -> dict:
-        """Calcula todas las métricas para un partido dado."""
-        p1, px, p2 = pred['p1'], pred['px'], pred['p2']
-        p_vec = np.array([p1, px, p2])
-        p_vec = np.clip(p_vec, 1e-10, 1.0)
-        p_vec /= p_vec.sum()
-        
-        # Resultado real
-        if actual_gf > actual_gc:
-            y_true = np.array([1.0, 0.0, 0.0])
-            outcome_idx = 0
-        elif actual_gf == actual_gc:
-            y_true = np.array([0.0, 1.0, 0.0])
-            outcome_idx = 1
-        else:
-            y_true = np.array([0.0, 0.0, 1.0])
-            outcome_idx = 2
-        
-        brier = float(np.sum((p_vec - y_true) ** 2))
-        log_loss = float(-np.log(p_vec[outcome_idx]))
-        rps_val = self.rps(p_vec, outcome_idx)
-        hit = int(np.argmax(p_vec) == outcome_idx)
-        
-        return {
-            'brier': brier, 'log_loss': log_loss,
-            'rps': rps_val, 'hit': hit,
-            'p1': float(p_vec[0]), 'px': float(p_vec[1]), 'p2': float(p_vec[2]),
-            'y_true': int(outcome_idx),
-            'lam_pred': pred.get('lam', 0), 'mu_pred': pred.get('mu', 0),
-            'gf_true': actual_gf, 'gc_true': actual_gc,
-        }
-    
-    def aggregate(self) -> dict:
-        """Agrega métricas sobre todos los partidos evaluados."""
-        if not self.results:
-            return {}
-        
-        n = len(self.results)
-        bs = np.mean([r['brier'] for r in self.results])
-        ll = np.mean([r['log_loss'] for r in self.results])
-        rps = np.mean([r['rps'] for r in self.results])
-        hit = np.mean([r['hit'] for r in self.results])
-        
-        # Calibración: dividir predicciones en deciles y comparar con frecuencia real
-        p1_preds = np.array([r['p1'] for r in self.results])
-        y_true_1 = np.array([1.0 if r['y_true'] == 0 else 0.0 for r in self.results])
-        
-        calibration_bins = {}
-        for bin_lo, bin_hi in [(i/10, (i+1)/10) for i in range(10)]:
-            mask = (p1_preds >= bin_lo) & (p1_preds < bin_hi)
-            if mask.sum() > 0:
-                calibration_bins[f'{bin_lo:.1f}-{bin_hi:.1f}'] = {
-                    'n': int(mask.sum()),
-                    'pred_mean': float(p1_preds[mask].mean()),
-                    'actual_freq': float(y_true_1[mask].mean()),
-                }
-        
-        # ECE (Expected Calibration Error)
-        ece = sum(
-            abs(v['pred_mean'] - v['actual_freq']) * v['n'] / n
-            for v in calibration_bins.values()
-        )
-        
-        rps_by_match = {
-            r['match'].get('date', f'unknown_{i}'): r['rps']
-            for i, r in enumerate(self.results)
-        }
-        
-        return {
-            'n_matches': n,
-            'brier_score': round(bs, 4),
-            'log_loss': round(ll, 4),
-            'rps': round(rps, 4),
-            'hit_rate_pct': round(hit * 100, 1),
-            'ece': round(ece, 4),
-            'calibration': calibration_bins,
-            'rps_by_match': rps_by_match,
-        }
-    
-    def run_walkforward(
-        self,
-        team_a: str, team_b: str,
-        all_matches_a: list[dict], all_matches_b: list[dict],
-        venue: str = 'N',
-        half_life: Optional[float] = None,
-        optimize_rho: bool = True,
-        eval_start_idx: Optional[int] = None,
-    ) -> dict:
-        """
-        Simulación walk-forward completa.
-        """
-        if half_life is None:
-            raise AssertionError(
-                "run_walkforward requiere half_life explícito. "
-                "half_life=None dispararía auto-optimización dentro de cada "
-                "fold del walk-forward, filtrando información del propio "
-                "fold hacia la selección del hiperparámetro (double dipping). "
-                "Corré fase2_barrido.py para elegir un half_life primero."
-            )
-
-        sorted_a = sorted(all_matches_a, key=lambda m: m.get('date', '1970-01-01'))
-        start_idx = max(self.min_train_size, eval_start_idx if eval_start_idx is not None else 0)
-        
-        for k in range(start_idx, len(sorted_a)):
-            train_a = sorted_a[:k]
-            test_m  = sorted_a[k]
-            
-            # matches_b estrictamente anteriores a test_date
-            test_date = test_m.get('date', '9999-99-99')
-            train_b = [m for m in all_matches_b if m.get('date', '9999-99-99') < test_date]
-            
-            if len(train_b) < 3:
-                continue  # insuficientes datos del oponente
-            
-            try:
-                engine = UnifiedEngine(
-                    team_a=team_a, team_b=team_b,
-                    matches_a=train_a, matches_b=train_b,
-                    venue=venue,
-                    half_life=half_life,
-                    optimize_rho=optimize_rho,
-                )
-                pred = engine.predict()
-                metrics = self.evaluate_match(
-                    int(test_m.get('gf', 0)), int(test_m.get('gc', 0)), pred
-                )
-                metrics['match'] = test_m
-                self.results.append(metrics)
-            except Exception as e:
-                print(f"[WalkForward] Error en partido {k}: {e}")
-                continue
-        
-        return self.aggregate()
-
-
-# ===========================================================================
 # INTERFACE PÚBLICA — compatible con la API existente de supreme_engine
 # ===========================================================================
 
@@ -713,15 +560,6 @@ def run_prediction(
     )
     result = engine.predict()
     
-    # Conectamos WalkForwardBacktester al flujo principal
-    backtest_metrics = {}
-    if run_backtest and len(matches_a) >= 8 and len(matches_b) >= 8:
-        bt = WalkForwardBacktester(min_train_size=5)
-        backtest_metrics = bt.run_walkforward(
-            team_a, team_b, matches_a, matches_b, venue=venue, half_life=result['half_life_days']
-        )
-        result['backtest_metrics'] = backtest_metrics
-    
     if verbose:
         print(f"\n{'='*55}")
         print(f"  {team_a} vs {team_b} (Venue: {venue})")
@@ -733,14 +571,6 @@ def run_prediction(
         print(f"  mu = {result['mu']} ± {result['mu_std']}  (CI90: {result['ci_mu_90']})")
         print(f"\n  P(1)={result['p1']:.1%}  P(X)={result['px']:.1%}  P(2)={result['p2']:.1%}")
         
-        if backtest_metrics:
-            print(f"\n  [Walk-Forward Validation]")
-            print(f"  Matches Eval: {backtest_metrics.get('n_matches', 0)}")
-            print(f"  Brier Score:  {backtest_metrics.get('brier_score', 'N/A')}")
-            print(f"  Log-Loss:     {backtest_metrics.get('log_loss', 'N/A')}")
-            print(f"  RPS:          {backtest_metrics.get('rps', 'N/A')}")
-            print(f"  Hit Rate:     {backtest_metrics.get('hit_rate_pct', 'N/A')}%")
-            
         print(f"\n  Top-5 marcadores exactos:")
         for s in result['top_5_scores']:
             print(f"    {s['score']}  →  {s['prob']:.2%}")
@@ -760,13 +590,3 @@ if __name__ == '__main__':
     sen_dyn = telemetry.synchronize_knowledge_base("SENEGAL", senegal)
     
     run_prediction("BÉLGICA", "SENEGAL", bel_dyn, sen_dyn, venue='N')
-    
-    print("\n--- WALK-FORWARD BACKTESTING ---")
-    bt = WalkForwardBacktester(min_train_size=8)
-    metrics = bt.run_walkforward(
-        team_a='BÉLGICA', team_b='SENEGAL',
-        all_matches_a=bel_dyn,
-        all_matches_b=sen_dyn,
-        venue='N'
-    )
-    print(metrics)
