@@ -24,7 +24,7 @@ MAX_KELLY_STAKE = float(os.getenv("MAX_KELLY_STAKE", 0.25))
 
 # Decay & Rates
 DEFAULT_HALF_LIFE = 365.0       # Exponential decay half-life in days
-PRIOR_STRENGTH = 6.0            # "Imaginary games" of prior confidence
+PRIOR_STRENGTH = 7.21            # "Imaginary games" of prior confidence
 
 # Elo System
 ELO_K_WC = 40.0                 # K-factor for World Cup
@@ -35,7 +35,7 @@ ELO_SCALE = 400.0               # Logistic scale for Elo
 
 # Goals & Lambda
 AVG_GOALS_HISTORICAL = 1.32     # Historical avg goals per team (2.64 total)
-LAMBDA_SCALE = 0.23             # Elo-to-lambda multiplier (calibratable)
+LAMBDA_SCALE = 0.4031             # Elo-to-lambda multiplier (calibratable)
 
 # Dixon-Coles
 DEFAULT_RHO = -0.13             # Default dependence parameter
