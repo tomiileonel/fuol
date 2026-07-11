@@ -345,7 +345,7 @@ def measure_leak_impact_on_rps(
 # 2.4 — WALK-FORWARD CON PURGING Y EMBARGO (Prado, 2018)
 # ============================================================================
 #
-# Complemento directo a WalkForwardBacktester (unified_engine.py) y a la
+# Complemento directo a WalkForwardPipeline y a la
 # división cronológica de fase3_confirmacion.py. Una partición cronológica
 # simple en 2 mitades es válida pero deja un problema sutil: si hay
 # features con ventanas móviles (medias de forma reciente, Elo con

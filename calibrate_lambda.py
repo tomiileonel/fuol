@@ -26,7 +26,7 @@ divergen de forma notoria, el script lo reporta explícitamente en lugar
 de promediar en silencio.
 
 Requiere: statsmodels, y un CSV con el formato usado por
-fase1_baseline.cargar_historial (date, home_team, away_team, home_score,
+DataPipeline (date, home_team, away_team, home_score,
 away_score, tournament, neutral).
 
 Uso:
@@ -46,8 +46,7 @@ from unified_engine import EloRating, ELO_INITIAL
 
 def cargar_partidos_globales(csv_path: str) -> list[dict]:
     """
-    A diferencia de fase1_baseline.cargar_historial (que filtra por un
-    equipo), esto carga TODOS los partidos del CSV, porque la calibración
+    A diferencia de DataPipeline.prepare_data, esto carga TODOS los partidos del CSV, porque la calibración
     de LAMBDA_SCALE necesita reconstruir el Elo de cada selección que
     aparece en el dataset, no solo de dos equipos.
     """
